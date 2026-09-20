@@ -83,6 +83,7 @@ def normalize_title(title: str) -> str:
 
     # Normalize "Title, The" -> "The Title"
     match = re.match(r"^(.*),\s*(the|a|an)$", value)
+
     if match:
         value = f"{match.group(2)} {match.group(1)}"
 
@@ -104,8 +105,18 @@ def normalize_author(author: str) -> str:
         return ""
 
     value = author.lower()
-    value = re.sub(r"[^a-z0-9\s]", " ", value)
-    value = re.sub(r"\s+", " ", value).strip()
+
+    value = re.sub(
+        r"[^a-z0-9\s]",
+        " ",
+        value,
+    )
+
+    value = re.sub(
+        r"\s+",
+        " ",
+        value,
+    ).strip()
 
     return value
 
@@ -118,12 +129,43 @@ def similarity(left: str, right: str) -> float:
     if not left or not right:
         return 0.0
 
-    return SequenceMatcher(None, left, right).ratio()
+    return SequenceMatcher(
+        None,
+        left,
+        right,
+    ).ratio()
 
 
-def extract_authors(record: dict[str, Any]) -> list[str]:
+def resolve_author_name(
+    client: "OpenLibraryClient",
+    author_key: str,
+) -> str | None:
     """
-    Extract author names from an Open Library Work or Edition record.
+    Resolve an Open Library author key to a human-readable name.
+    """
+
+    if not author_key:
+        return None
+
+    author_id = author_key.split("/")[-1]
+
+    author = client._get_json(
+        f"{BASE_URL}/authors/{author_id}.json"
+    )
+
+    if not author:
+        return None
+
+    return author.get("name")
+
+
+def extract_authors(
+    client: "OpenLibraryClient",
+    record: dict[str, Any],
+) -> list[str]:
+    """
+    Extract human-readable author names from an Open Library
+    Work or Edition record.
     """
 
     authors = []
@@ -132,21 +174,39 @@ def extract_authors(record: dict[str, Any]) -> list[str]:
         if not isinstance(author, dict):
             continue
 
+        # Some Open Library responses may already contain a name.
         name = author.get("name")
 
         if name:
             authors.append(name)
             continue
 
-        author_key = author.get("author", {}).get("key")
+        # Work records commonly use:
+        # {"author": {"key": "/authors/OL..."}}
+        author_data = author.get("author", {})
+
+        author_key = author_data.get("key")
+
+        # Edition records may use:
+        # {"key": "/authors/OL..."}
+        if not author_key:
+            author_key = author.get("key")
 
         if author_key:
-            authors.append(author_key.split("/")[-1])
+            resolved_name = resolve_author_name(
+                client,
+                author_key,
+            )
 
-    return authors
+            if resolved_name:
+                authors.append(resolved_name)
+
+    return sorted(set(authors))
 
 
-def extract_subject_names(values: list[Any] | None) -> list[str]:
+def extract_subject_names(
+    values: list[Any] | None,
+) -> list[str]:
     """
     Normalize Open Library subject values.
 
@@ -166,16 +226,28 @@ def extract_subject_names(values: list[Any] | None) -> list[str]:
             name = value.get("name")
 
             if name:
-                results.append(str(name).strip())
+                results.append(
+                    str(name).strip()
+                )
 
-    return sorted(set(x for x in results if x))
+    return sorted(
+        set(
+            x
+            for x in results
+            if x
+        )
+    )
 
 
-def extract_year(record: dict[str, Any]) -> int | None:
+def extract_year(
+    record: dict[str, Any],
+    edition: dict[str, Any] | None = None,
+) -> int | None:
     """
-    Extract a publication year when available.
+    Extract a publication year from the Work or Edition.
     """
 
+    # First preference: Work-level first publication year.
     year = record.get("first_publish_year")
 
     if year:
@@ -184,18 +256,34 @@ def extract_year(record: dict[str, Any]) -> int | None:
         except (TypeError, ValueError):
             pass
 
+    # Second preference: Edition publication date.
+    if edition:
+        publish_date = edition.get("publish_date")
+
+        if publish_date:
+            match = re.search(
+                r"\b(1[0-9]{3}|20[0-9]{2})\b",
+                str(publish_date),
+            )
+
+            if match:
+                return int(
+                    match.group(1)
+                )
+
+    # Final fallback: Work-level publication date.
     publish_date = record.get("publish_date")
 
-    if isinstance(publish_date, list):
-        dates = publish_date
-    else:
-        dates = [publish_date] if publish_date else []
-
-    for value in dates:
-        match = re.search(r"\b(1[0-9]{3}|20[0-9]{2})\b", str(value))
+    if publish_date:
+        match = re.search(
+            r"\b(1[0-9]{3}|20[0-9]{2})\b",
+            str(publish_date),
+        )
 
         if match:
-            return int(match.group(1))
+            return int(
+                match.group(1)
+            )
 
     return None
 
@@ -219,10 +307,16 @@ class OpenLibraryClient:
         cache_dir: Path = CACHE_DIR,
         request_delay: float = REQUEST_DELAY_SECONDS,
     ) -> None:
+
         self.cache_dir = cache_dir
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+        self.cache_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
 
         self.request_delay = request_delay
+
         self.session = requests.Session()
 
         self.session.headers.update(
@@ -234,21 +328,44 @@ class OpenLibraryClient:
             }
         )
 
-    def _cache_path(self, url: str) -> Path:
-        safe_name = re.sub(r"[^a-zA-Z0-9_.-]", "_", url)
+    def _cache_path(
+        self,
+        url: str,
+    ) -> Path:
 
-        return self.cache_dir / f"{safe_name}.json"
+        safe_name = re.sub(
+            r"[^a-zA-Z0-9_.-]",
+            "_",
+            url,
+        )
 
-    def _get_json(self, url: str) -> dict[str, Any] | None:
+        return (
+            self.cache_dir
+            / f"{safe_name}.json"
+        )
+
+    def _get_json(
+        self,
+        url: str,
+    ) -> dict[str, Any] | None:
+
         cache_path = self._cache_path(url)
 
+        # Use cached response when available.
         if cache_path.exists():
             try:
-                return json.loads(cache_path.read_text(encoding="utf-8"))
+                return json.loads(
+                    cache_path.read_text(
+                        encoding="utf-8"
+                    )
+                )
+
             except json.JSONDecodeError:
                 cache_path.unlink()
 
-        time.sleep(self.request_delay)
+        time.sleep(
+            self.request_delay
+        )
 
         response = self.session.get(
             url,
@@ -261,18 +378,30 @@ class OpenLibraryClient:
         data = response.json()
 
         cache_path.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2),
+            json.dumps(
+                data,
+                ensure_ascii=False,
+                indent=2,
+            ),
             encoding="utf-8",
         )
 
         return data
 
-    def get_work(self, work_id: str) -> dict[str, Any] | None:
+    def get_work(
+        self,
+        work_id: str,
+    ) -> dict[str, Any] | None:
+
         return self._get_json(
             f"{BASE_URL}/works/{work_id}.json"
         )
 
-    def get_edition(self, edition_id: str) -> dict[str, Any] | None:
+    def get_edition(
+        self,
+        edition_id: str,
+    ) -> dict[str, Any] | None:
+
         return self._get_json(
             f"{BASE_URL}/books/{edition_id}.json"
         )
@@ -280,12 +409,19 @@ class OpenLibraryClient:
     def lookup_isbn(
         self,
         isbn: str,
-    ) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    ) -> tuple[
+        dict[str, Any],
+        dict[str, Any],
+    ] | None:
 
         if not isbn:
             return None
 
-        clean_isbn = re.sub(r"[^0-9Xx]", "", str(isbn))
+        clean_isbn = re.sub(
+            r"[^0-9Xx]",
+            "",
+            str(isbn),
+        )
 
         if not clean_isbn:
             return None
@@ -297,26 +433,40 @@ class OpenLibraryClient:
         if not edition:
             return None
 
-        edition_key = edition.get("key", "")
+        edition_key = edition.get(
+            "key",
+            "",
+        )
 
         if not edition_key:
             return None
 
-        edition_id = edition_key.split("/")[-1]
+        edition_id = edition_key.split(
+            "/"
+        )[-1]
 
-        work_keys = edition.get("works", [])
+        work_keys = edition.get(
+            "works",
+            [],
+        )
 
         if not work_keys:
             return None
 
-        work_key = work_keys[0].get("key")
+        work_key = work_keys[0].get(
+            "key"
+        )
 
         if not work_key:
             return None
 
-        work_id = work_key.split("/")[-1]
+        work_id = work_key.split(
+            "/"
+        )[-1]
 
-        work = self.get_work(work_id)
+        work = self.get_work(
+            work_id
+        )
 
         if not work:
             return None
@@ -335,7 +485,9 @@ class OpenLibraryClient:
             "limit": SEARCH_LIMIT,
         }
 
-        return self._search(params)
+        return self._search(
+            params
+        )
 
     def search_author(
         self,
@@ -347,7 +499,9 @@ class OpenLibraryClient:
             "limit": SEARCH_LIMIT,
         }
 
-        return self._search(params)
+        return self._search(
+            params
+        )
 
     def _search(
         self,
@@ -355,18 +509,27 @@ class OpenLibraryClient:
     ) -> list[dict[str, Any]]:
 
         query = "&".join(
-            f"{key}={requests.utils.quote(str(value))}"
+            f"{key}="
+            f"{requests.utils.quote(str(value))}"
             for key, value in params.items()
         )
 
-        url = f"{BASE_URL}/search.json?{query}"
+        url = (
+            f"{BASE_URL}/search.json?"
+            f"{query}"
+        )
 
-        data = self._get_json(url)
+        data = self._get_json(
+            url
+        )
 
         if not data:
             return []
 
-        return data.get("docs", [])
+        return data.get(
+            "docs",
+            []
+        )
 
     def match_book(
         self,
@@ -380,13 +543,22 @@ class OpenLibraryClient:
         # ---------------------------------------------------------
 
         if isbn:
-            isbn_result = self.lookup_isbn(isbn)
+            isbn_result = self.lookup_isbn(
+                isbn
+            )
 
             if isbn_result:
                 work, edition = isbn_result
 
-                work_id = work.get("key", "").split("/")[-1]
-                edition_id = edition.get("key", "").split("/")[-1]
+                work_id = work.get(
+                    "key",
+                    "",
+                ).split("/")[-1]
+
+                edition_id = edition.get(
+                    "key",
+                    "",
+                ).split("/")[-1]
 
                 return self._build_enrichment(
                     work=work,
@@ -397,8 +569,13 @@ class OpenLibraryClient:
                     edition_id=edition_id,
                 )
 
-        normalized_title = normalize_title(title)
-        normalized_author = normalize_author(author)
+        normalized_title = normalize_title(
+            title
+        )
+
+        normalized_author = normalize_author(
+            author
+        )
 
         # ---------------------------------------------------------
         # 2. Title + author search
@@ -417,6 +594,7 @@ class OpenLibraryClient:
         )
 
         if best_candidate:
+
             return self._candidate_to_enrichment(
                 best_candidate,
                 matched_by="author_fuzzy_title",
@@ -431,7 +609,9 @@ class OpenLibraryClient:
         # 3. Author-first fallback
         # ---------------------------------------------------------
 
-        author_candidates = self.search_author(author)
+        author_candidates = self.search_author(
+            author
+        )
 
         best_candidate = self._find_best_candidate(
             candidates=author_candidates,
@@ -441,6 +621,7 @@ class OpenLibraryClient:
         )
 
         if best_candidate:
+
             return self._candidate_to_enrichment(
                 best_candidate,
                 matched_by="author_scan_title",
@@ -467,16 +648,29 @@ class OpenLibraryClient:
     ) -> float:
 
         candidate_title = normalize_title(
-            candidate.get("title", "")
+            candidate.get(
+                "title",
+                "",
+            )
         )
 
-        candidate_authors = candidate.get("author_name", [])
+        candidate_authors = candidate.get(
+            "author_name",
+            [],
+        )
 
-        if isinstance(candidate_authors, str):
-            candidate_authors = [candidate_authors]
+        if isinstance(
+            candidate_authors,
+            str,
+        ):
+            candidate_authors = [
+                candidate_authors
+            ]
 
         candidate_author = (
-            normalize_author(candidate_authors[0])
+            normalize_author(
+                candidate_authors[0]
+            )
             if candidate_authors
             else ""
         )
@@ -491,7 +685,11 @@ class OpenLibraryClient:
             candidate_author,
         )
 
-        return (title_score * 0.7) + (author_score * 0.3)
+        return (
+            title_score * 0.7
+        ) + (
+            author_score * 0.3
+        )
 
     def _find_best_candidate(
         self,
@@ -505,16 +703,24 @@ class OpenLibraryClient:
         best_score = 0.0
 
         for candidate in candidates:
+
             candidate_authors = candidate.get(
                 "author_name",
                 [],
             )
 
-            if isinstance(candidate_authors, str):
-                candidate_authors = [candidate_authors]
+            if isinstance(
+                candidate_authors,
+                str,
+            ):
+                candidate_authors = [
+                    candidate_authors
+                ]
 
             candidate_author = (
-                normalize_author(candidate_authors[0])
+                normalize_author(
+                    candidate_authors[0]
+                )
                 if candidate_authors
                 else ""
             )
@@ -524,7 +730,8 @@ class OpenLibraryClient:
                 candidate_author,
             )
 
-            # Never accept a title match with a clearly different author.
+            # Never accept a title match with
+            # a clearly different author.
             if author_score < 0.85:
                 continue
 
@@ -534,7 +741,10 @@ class OpenLibraryClient:
                 author,
             )
 
-            if score >= minimum_score and score > best_score:
+            if (
+                score >= minimum_score
+                and score > best_score
+            ):
                 best = candidate
                 best_score = score
 
@@ -547,16 +757,23 @@ class OpenLibraryClient:
         score: float,
     ) -> OpenLibraryEnrichment:
 
-        key = candidate.get("key", "")
+        key = candidate.get(
+            "key",
+            "",
+        )
 
         if not key:
             return OpenLibraryEnrichment(
                 status="unmatched"
             )
 
-        work_id = key.split("/")[-1]
+        work_id = key.split(
+            "/"
+        )[-1]
 
-        work = self.get_work(work_id)
+        work = self.get_work(
+            work_id
+        )
 
         if not work:
             return OpenLibraryEnrichment(
@@ -586,36 +803,54 @@ class OpenLibraryClient:
     ) -> OpenLibraryEnrichment:
 
         subjects = extract_subject_names(
-            work.get("subjects")
+            work.get(
+                "subjects"
+            )
         )
 
         subject_people = extract_subject_names(
-            work.get("subject_people")
+            work.get(
+                "subject_people"
+            )
         )
 
         subject_places = extract_subject_names(
-            work.get("subject_places")
+            work.get(
+                "subject_places"
+            )
         )
 
         subject_times = extract_subject_names(
-            work.get("subject_times")
+            work.get(
+                "subject_times"
+            )
         )
 
+        # Add edition-level subjects when available.
         if edition:
             subjects.extend(
                 extract_subject_names(
-                    edition.get("subjects")
+                    edition.get(
+                        "subjects"
+                    )
                 )
             )
 
-        subjects = sorted(set(subjects))
+        subjects = sorted(
+            set(subjects)
+        )
 
-        authors = extract_authors(work)
+        # Resolve author IDs into names.
+        authors = extract_authors(
+            self,
+            work,
+        )
 
         isbn_10 = []
         isbn_13 = []
 
         if edition:
+
             isbn_10 = [
                 str(value)
                 for value in edition.get(
@@ -632,14 +867,18 @@ class OpenLibraryClient:
                 )
             ]
 
-        cover_id = work.get("covers", [None])[0]
+        # Build cover URL.
+        cover_id = work.get(
+            "covers",
+            [None],
+        )[0]
 
         cover_url = None
 
         if cover_id:
             cover_url = (
-                f"https://covers.openlibrary.org/b/id/"
-                f"{cover_id}-L.jpg"
+                f"{BASE_URL.replace('https://openlibrary.org', 'https://covers.openlibrary.org')}"
+                f"/b/id/{cover_id}-L.jpg"
             )
 
         return OpenLibraryEnrichment(
@@ -647,9 +886,14 @@ class OpenLibraryClient:
             openlibrary_edition_id=edition_id,
             matched_by=matched_by,
             match_score=match_score,
-            title=work.get("title"),
+            title=work.get(
+                "title"
+            ),
             authors=authors,
-            publication_year=extract_year(work),
+            publication_year=extract_year(
+                work,
+                edition,
+            ),
             subjects=subjects,
             subject_people=subject_people,
             subject_places=subject_places,
@@ -668,6 +912,9 @@ def enrich_book(
     author: str,
     isbn: str | None = None,
 ) -> dict[str, Any]:
+    """
+    Convenience function for enriching a single book.
+    """
 
     client = OpenLibraryClient()
 
@@ -677,4 +924,6 @@ def enrich_book(
         isbn=isbn,
     )
 
-    return asdict(enrichment)
+    return asdict(
+        enrichment
+    )
