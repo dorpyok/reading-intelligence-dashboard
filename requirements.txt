@@ -2,3 +2,8 @@ pandas
 requests
 feedparser
 python-dotenv
+sentence-transformers
+umap-learn
+hdbscan
+scikit-learn
+matplotlib
