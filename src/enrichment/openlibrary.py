@@ -33,27 +33,14 @@ class OpenLibraryEnrichment:
     match_score: float | None = None
 
     title: str | None = None
-    authors: list[str] = field(
-        default_factory=list
-    )
+    authors: list[str] = field(default_factory=list)
 
     publication_year: int | None = None
 
-    subjects: list[str] = field(
-        default_factory=list
-    )
-
-    subject_people: list[str] = field(
-        default_factory=list
-    )
-
-    subject_places: list[str] = field(
-        default_factory=list
-    )
-
-    subject_times: list[str] = field(
-        default_factory=list
-    )
+    subjects: list[str] = field(default_factory=list)
+    subject_people: list[str] = field(default_factory=list)
+    subject_places: list[str] = field(default_factory=list)
+    subject_times: list[str] = field(default_factory=list)
 
     isbn_10: str | None = None
     isbn_13: str | None = None
@@ -67,22 +54,20 @@ class OpenLibraryEnrichment:
 
 
 class OpenLibraryClient:
-
     BASE_URL = "https://openlibrary.org"
 
     TITLE_THRESHOLD = 0.85
     AUTHOR_THRESHOLD = 0.85
     MATCH_THRESHOLD = 0.82
 
+    SEARCH_LIMIT = 100
+
     def __init__(
         self,
         cache_dir: Path | None = None,
         request_delay: float = 0.1,
     ):
-
-        self.cache_dir = (
-            cache_dir or CACHE_DIR
-        )
+        self.cache_dir = cache_dir or CACHE_DIR
 
         self.cache_dir.mkdir(
             parents=True,
@@ -106,74 +91,53 @@ class OpenLibraryClient:
     # CACHE
     # ================================================================
 
-    def _cache_path(
-        self,
-        url: str,
-    ) -> Path:
+    def _cache_path(self, url: str) -> Path:
         """
         Create a filesystem-safe cache filename.
 
-        The URL itself is NOT used as the filename.
-
-        Instead, we hash the URL with SHA-256.
-        This prevents Windows path-length and
+        The URL itself is not used as the filename.
+        A SHA-256 hash prevents Windows path-length and
         invalid-character problems.
         """
-
         url_hash = hashlib.sha256(
             url.encode("utf-8")
         ).hexdigest()
 
-        return (
-            self.cache_dir
-            / f"{url_hash}.json"
-        )
+        return self.cache_dir / f"{url_hash}.json"
 
     def _get_json(
         self,
         url: str,
     ) -> dict[str, Any] | None:
-
-        cache_path = self._cache_path(
-            url
-        )
+        cache_path = self._cache_path(url)
 
         # ------------------------------------------------------------
         # CACHE LOOKUP
         # ------------------------------------------------------------
 
         if cache_path.exists():
-
             try:
-
                 return json.loads(
                     cache_path.read_text(
                         encoding="utf-8"
                     )
                 )
-
             except (
                 json.JSONDecodeError,
                 OSError,
             ):
-
                 pass
 
         # ------------------------------------------------------------
         # REQUEST
         # ------------------------------------------------------------
 
-        time.sleep(
-            self.request_delay
-        )
+        time.sleep(self.request_delay)
 
         try:
-
-            response = (
-                self.session.get(
-                    url,
-                    timeout=30,
-                )
+            response = self.session.get(
+                url,
+                timeout=30,
             )
 
             if response.status_code == 404:
@@ -184,19 +148,9 @@ class OpenLibraryClient:
             data = response.json()
 
         except requests.RequestException as exc:
-
-            print(
-                "Open Library request failed:"
-            )
-
-            print(
-                f"  URL: {url}"
-            )
-
-            print(
-                f"  Error: {exc}"
-            )
-
+            print("Open Library request failed:")
+            print(f"  URL: {url}")
+            print(f"  Error: {exc}")
             return None
 
         # ------------------------------------------------------------
@@ -204,7 +158,6 @@ class OpenLibraryClient:
         # ------------------------------------------------------------
 
         try:
-
             cache_path.write_text(
                 json.dumps(
                     data,
@@ -213,17 +166,12 @@ class OpenLibraryClient:
                 ),
                 encoding="utf-8",
             )
-
         except OSError as exc:
-
             print(
                 "Warning: could not cache "
                 "Open Library response:"
             )
-
-            print(
-                f"  {exc}"
-            )
+            print(f"  {exc}")
 
         return data
 
@@ -235,18 +183,19 @@ class OpenLibraryClient:
     def normalize_text(
         value: str | None,
     ) -> str:
-
         if not value:
             return ""
 
         value = value.lower()
 
+        # Remove parenthetical series/subtitle information.
         value = re.sub(
             r"\([^)]*\)",
             "",
             value,
         )
 
+        # Keep only simple alphanumeric characters.
         value = re.sub(
             r"[^a-z0-9]+",
             " ",
@@ -266,20 +215,14 @@ class OpenLibraryClient:
         cls,
         title: str | None,
     ) -> str:
-
-        return cls.normalize_text(
-            title
-        )
+        return cls.normalize_text(title)
 
     @classmethod
     def normalize_author(
         cls,
         author: str | None,
     ) -> str:
-
-        return cls.normalize_text(
-            author
-        )
+        return cls.normalize_text(author)
 
     # ================================================================
     # SIMILARITY
@@ -290,7 +233,6 @@ class OpenLibraryClient:
         left: str,
         right: str,
     ) -> float:
-
         if not left or not right:
             return 0.0
 
@@ -311,10 +253,7 @@ class OpenLibraryClient:
         dict[str, Any] | None,
         dict[str, Any] | None,
     ]:
-
-        isbn = str(
-            isbn
-        ).strip()
+        isbn = str(isbn).strip()
 
         if not isbn:
             return None, None
@@ -324,9 +263,7 @@ class OpenLibraryClient:
             f"/isbn/{isbn}.json"
         )
 
-        edition = self._get_json(
-            url
-        )
+        edition = self._get_json(url)
 
         if not edition:
             return None, None
@@ -341,43 +278,26 @@ class OpenLibraryClient:
 
         first_work = work_keys[0]
 
-        if isinstance(
-            first_work,
-            dict,
-        ):
-
-            work_key = (
-                first_work.get(
-                    "key"
-                )
-            )
-
+        if isinstance(first_work, dict):
+            work_key = first_work.get("key")
         else:
-
             work_key = first_work
 
         if not work_key:
             return edition, None
 
-        if work_key.startswith(
-            "/works/"
-        ):
-
+        if work_key.startswith("/works/"):
             work_url = (
                 f"{self.BASE_URL}"
                 f"{work_key}.json"
             )
-
         else:
-
             work_url = (
                 f"{self.BASE_URL}"
                 f"/works/{work_key}.json"
             )
 
-        work = self._get_json(
-            work_url
-        )
+        work = self._get_json(work_url)
 
         return edition, work
 
@@ -385,34 +305,81 @@ class OpenLibraryClient:
     # SEARCH
     # ================================================================
 
+    def _search(
+        self,
+        params: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """
+        Execute an Open Library search request.
+        """
+        time.sleep(self.request_delay)
+
+        try:
+            response = self.session.get(
+                f"{self.BASE_URL}/search.json",
+                params=params,
+                timeout=30,
+            )
+
+            response.raise_for_status()
+
+            data = response.json()
+
+        except requests.RequestException as exc:
+            print("Open Library search failed:")
+            print(f"  Parameters: {params}")
+            print(f"  Error: {exc}")
+            return []
+
+        return data.get("docs", [])
+
     def search_books(
         self,
         title: str,
         author: str | None = None,
     ) -> list[dict[str, Any]]:
-
-        params = {
+        """
+        Search Open Library by title, optionally constrained by author.
+        """
+        params: dict[str, Any] = {
             "title": title,
-            "limit": 100,
+            "limit": self.SEARCH_LIMIT,
         }
 
         if author:
             params["author"] = author
 
-        response = self.session.get(
-            f"{self.BASE_URL}/search.json",
-            params=params,
-            timeout=30,
+        return self._search(params)
+
+    def search_title_author(
+        self,
+        title: str,
+        author: str,
+    ) -> list[dict[str, Any]]:
+        """
+        Search using both title and author.
+        """
+        return self.search_books(
+            title=title,
+            author=author,
         )
 
-        response.raise_for_status()
+    def search_author(
+        self,
+        author: str,
+    ) -> list[dict[str, Any]]:
+        """
+        Search Open Library by author alone.
 
-        data = response.json()
+        This is intentionally used as a fallback when a
+        title + author search does not produce a reliable match.
+        """
+        params = {
+            "author": author,
+            "limit": self.SEARCH_LIMIT,
+        }
 
-        return data.get(
-            "docs",
-            [],
-        )
+        return self._search(params)
 
     # ================================================================
     # AUTHOR
@@ -422,36 +389,26 @@ class OpenLibraryClient:
         self,
         author_key: str,
     ) -> str | None:
-
         if not author_key:
             return None
 
-        if author_key.startswith(
-            "/authors/"
-        ):
-
+        if author_key.startswith("/authors/"):
             url = (
                 f"{self.BASE_URL}"
                 f"{author_key}.json"
             )
-
         else:
-
             url = (
                 f"{self.BASE_URL}"
                 f"/authors/{author_key}.json"
             )
 
-        data = self._get_json(
-            url
-        )
+        data = self._get_json(url)
 
         if not data:
             return None
 
-        return data.get(
-            "name"
-        )
+        return data.get("name")
 
     # ================================================================
     # WORK
@@ -461,29 +418,21 @@ class OpenLibraryClient:
         self,
         work_key: str,
     ) -> dict[str, Any] | None:
-
         if not work_key:
             return None
 
-        if work_key.startswith(
-            "/works/"
-        ):
-
+        if work_key.startswith("/works/"):
             url = (
                 f"{self.BASE_URL}"
                 f"{work_key}.json"
             )
-
         else:
-
             url = (
                 f"{self.BASE_URL}"
                 f"/works/{work_key}.json"
             )
 
-        return self._get_json(
-            url
-        )
+        return self._get_json(url)
 
     # ================================================================
     # SUBJECTS
@@ -494,96 +443,52 @@ class OpenLibraryClient:
         work: dict[str, Any] | None,
         edition: dict[str, Any] | None = None,
     ) -> list[str]:
-
         subjects = []
 
         if work:
-
             for subject in work.get(
                 "subjects",
                 [],
             ):
+                if isinstance(subject, str):
+                    subjects.append(subject)
 
-                if isinstance(
-                    subject,
-                    str,
-                ):
-
-                    subjects.append(
-                        subject
-                    )
-
-                elif isinstance(
-                    subject,
-                    dict,
-                ):
-
-                    name = subject.get(
-                        "name"
-                    )
+                elif isinstance(subject, dict):
+                    name = subject.get("name")
 
                     if name:
-                        subjects.append(
-                            str(name)
-                        )
+                        subjects.append(str(name))
 
         if edition:
-
             for subject in edition.get(
                 "subjects",
                 [],
             ):
+                if isinstance(subject, str):
+                    subjects.append(subject)
 
-                if isinstance(
-                    subject,
-                    str,
-                ):
-
-                    subjects.append(
-                        subject
-                    )
-
-                elif isinstance(
-                    subject,
-                    dict,
-                ):
-
-                    name = subject.get(
-                        "name"
-                    )
+                elif isinstance(subject, dict):
+                    name = subject.get("name")
 
                     if name:
-                        subjects.append(
-                            str(name)
-                        )
+                        subjects.append(str(name))
 
         cleaned = []
-
         seen = set()
 
         for subject in subjects:
-
-            subject = str(
-                subject
-            ).strip()
+            subject = str(subject).strip()
 
             if not subject:
                 continue
 
-            normalized = (
-                subject.lower()
-            )
+            normalized = subject.lower()
 
             if normalized in seen:
                 continue
 
-            seen.add(
-                normalized
-            )
-
-            cleaned.append(
-                subject
-            )
+            seen.add(normalized)
+            cleaned.append(subject)
 
         return cleaned
 
@@ -592,7 +497,6 @@ class OpenLibraryClient:
         work: dict[str, Any] | None,
         field_name: str,
     ) -> list[str]:
-
         if not work:
             return []
 
@@ -604,29 +508,14 @@ class OpenLibraryClient:
         results = []
 
         for value in values:
+            if isinstance(value, str):
+                results.append(value)
 
-            if isinstance(
-                value,
-                str,
-            ):
-
-                results.append(
-                    value
-                )
-
-            elif isinstance(
-                value,
-                dict,
-            ):
-
-                name = value.get(
-                    "name"
-                )
+            elif isinstance(value, dict):
+                name = value.get("name")
 
                 if name:
-                    results.append(
-                        str(name)
-                    )
+                    results.append(str(name))
 
         return list(
             dict.fromkeys(
@@ -645,49 +534,33 @@ class OpenLibraryClient:
         work: dict[str, Any] | None,
         edition: dict[str, Any] | None,
     ) -> int | None:
-
         if work:
-
             year = work.get(
                 "first_publish_year"
             )
 
             if year:
-
                 try:
-                    return int(
-                        year
-                    )
-
+                    return int(year)
                 except (
                     TypeError,
                     ValueError,
                 ):
-
                     pass
 
         if edition:
-
-            publish_date = (
-                edition.get(
-                    "publish_date"
-                )
+            publish_date = edition.get(
+                "publish_date"
             )
 
             if publish_date:
-
                 match = re.search(
                     r"\b(1[5-9]\d{2}|20\d{2})\b",
-                    str(
-                        publish_date
-                    ),
+                    str(publish_date),
                 )
 
                 if match:
-
-                    return int(
-                        match.group(1)
-                    )
+                    return int(match.group(1))
 
         return None
 
@@ -702,36 +575,27 @@ class OpenLibraryClient:
         str | None,
         str | None,
     ]:
-
         if not edition:
             return None, None
 
-        isbn_10_values = (
-            edition.get(
-                "isbn_10",
-                [],
-            )
+        isbn_10_values = edition.get(
+            "isbn_10",
+            [],
         )
 
-        isbn_13_values = (
-            edition.get(
-                "isbn_13",
-                [],
-            )
+        isbn_13_values = edition.get(
+            "isbn_13",
+            [],
         )
 
         isbn_10 = (
-            str(
-                isbn_10_values[0]
-            )
+            str(isbn_10_values[0])
             if isbn_10_values
             else None
         )
 
         isbn_13 = (
-            str(
-                isbn_13_values[0]
-            )
+            str(isbn_13_values[0])
             if isbn_13_values
             else None
         )
@@ -746,7 +610,6 @@ class OpenLibraryClient:
     def extract_cover_url(
         edition: dict[str, Any] | None,
     ) -> str | None:
-
         if not edition:
             return None
 
@@ -766,97 +629,157 @@ class OpenLibraryClient:
         )
 
     # ================================================================
-    # MATCH SEARCH RESULT
+    # MATCHING
     # ================================================================
 
-    def match_search_result(
+    def _candidate_score(
         self,
+        candidate: dict[str, Any],
+        target_title: str,
+        target_author: str,
+    ) -> float:
+        """
+        Score a candidate using:
+
+        70% title similarity
+        30% author similarity
+        """
+        candidate_title = self.normalize_title(
+            candidate.get("title", "")
+        )
+
+        candidate_authors = candidate.get(
+            "author_name",
+            [],
+        )
+
+        if isinstance(candidate_authors, str):
+            candidate_authors = [candidate_authors]
+
+        author_scores = [
+            self.similarity(
+                target_author,
+                self.normalize_author(candidate_author),
+            )
+            for candidate_author in candidate_authors
+        ]
+
+        author_score = max(
+            author_scores,
+            default=0.0,
+        )
+
+        title_score = self.similarity(
+            target_title,
+            candidate_title,
+        )
+
+        return (
+            title_score * 0.7
+            + author_score * 0.3
+        )
+
+    def _find_best_candidate(
+        self,
+        candidates: list[dict[str, Any]],
         title: str,
         author: str,
-        results: list[dict[str, Any]],
-    ) -> tuple[
-        dict[str, Any] | None,
-        float,
-    ]:
+        minimum_score: float,
+    ) -> dict[str, Any] | None:
+        """
+        Find the best candidate while requiring a strong
+        author match.
 
-        normalized_title = (
-            self.normalize_title(
-                title
-            )
-        )
-
-        normalized_author = (
-            self.normalize_author(
-                author
-            )
-        )
-
-        best_result = None
+        This prevents a similar title by a different author
+        from being accepted.
+        """
+        best = None
         best_score = 0.0
 
-        for result in results:
-
-            result_title = result.get(
-                "title",
-                "",
+        for candidate in candidates:
+            candidate_authors = candidate.get(
+                "author_name",
+                [],
             )
 
-            result_authors = (
-                result.get(
-                    "author_name",
-                    [],
-                )
-            )
+            if isinstance(candidate_authors, str):
+                candidate_authors = [candidate_authors]
 
-            title_score = (
+            author_scores = [
                 self.similarity(
-                    normalized_title,
-                    self.normalize_title(
-                        result_title
-                    ),
+                    author,
+                    self.normalize_author(candidate_author),
                 )
-            )
-
-            author_scores = []
-
-            for result_author in (
-                result_authors
-            ):
-
-                author_scores.append(
-                    self.similarity(
-                        normalized_author,
-                        self.normalize_author(
-                            result_author
-                        ),
-                    )
-                )
+                for candidate_author in candidate_authors
+            ]
 
             author_score = max(
                 author_scores,
                 default=0.0,
             )
 
-            if (
-                author_score
-                < self.AUTHOR_THRESHOLD
-            ):
+            # Never accept a title match with a clearly
+            # different author.
+            if author_score < self.AUTHOR_THRESHOLD:
                 continue
 
-            score = (
-                title_score * 0.7
-                + author_score * 0.3
+            score = self._candidate_score(
+                candidate,
+                title,
+                author,
             )
 
-            if score > best_score:
-
+            if (
+                score >= minimum_score
+                and score > best_score
+            ):
+                best = candidate
                 best_score = score
-                best_result = result
 
-        return (
-            best_result,
-            best_score,
+        return best
+
+    def match_search_result(
+        self,
+        title: str,
+        author: str,
+        results: list[dict[str, Any]],
+        minimum_score: float | None = None,
+    ) -> tuple[
+        dict[str, Any] | None,
+        float,
+    ]:
+        """
+        Match a search result against a title and author.
+
+        The default threshold is the original title+author
+        matching threshold.
+        """
+        normalized_title = self.normalize_title(title)
+        normalized_author = self.normalize_author(author)
+
+        minimum_score = (
+            minimum_score
+            if minimum_score is not None
+            else self.TITLE_THRESHOLD
         )
+
+        best_result = self._find_best_candidate(
+            candidates=results,
+            title=normalized_title,
+            author=normalized_author,
+            minimum_score=minimum_score,
+        )
+
+        if best_result is None:
+            return None, 0.0
+
+        score = self._candidate_score(
+            best_result,
+            normalized_title,
+            normalized_author,
+        )
+
+        return best_result, score
 
     # ================================================================
     # SEARCH RESULT → WORK
@@ -869,17 +792,16 @@ class OpenLibraryClient:
         dict[str, Any] | None,
         dict[str, Any] | None,
     ]:
-
-        work_key = result.get(
-            "key"
-        )
+        """
+        Convert an Open Library search result into its
+        Work and first available Edition.
+        """
+        work_key = result.get("key")
 
         if not work_key:
             return None, None
 
-        work = self.get_work(
-            work_key
-        )
+        work = self.get_work(work_key)
 
         if not work:
             return None, None
@@ -892,10 +814,7 @@ class OpenLibraryClient:
         )
 
         if edition_keys:
-
-            edition_key = (
-                edition_keys[0]
-            )
+            edition_key = edition_keys[0]
 
             edition_url = (
                 f"{self.BASE_URL}"
@@ -906,10 +825,7 @@ class OpenLibraryClient:
                 edition_url
             )
 
-        return (
-            work,
-            edition,
-        )
+        return work, edition
 
     # ================================================================
     # MATCH BOOK
@@ -921,42 +837,29 @@ class OpenLibraryClient:
         author: str,
         isbn: str | None = None,
     ) -> OpenLibraryEnrichment:
-
         result = OpenLibraryEnrichment(
             title=title
         )
 
+        normalized_title = self.normalize_title(title)
+        normalized_author = self.normalize_author(author)
+
         # ------------------------------------------------------------
-        # ISBN
+        # 1. ISBN EXACT MATCH
         # ------------------------------------------------------------
 
         if isbn:
-
-            isbn_clean = str(
-                isbn
-            ).strip()
+            isbn_clean = str(isbn).strip()
 
             if isbn_clean:
-
-                edition, work = (
-                    self.lookup_isbn(
-                        isbn_clean
-                    )
+                edition, work = self.lookup_isbn(
+                    isbn_clean
                 )
 
                 if work:
-
-                    result.status = (
-                        "matched"
-                    )
-
-                    result.matched_by = (
-                        "isbn"
-                    )
-
-                    result.match_score = (
-                        1.0
-                    )
+                    result.status = "matched"
+                    result.matched_by = "isbn"
+                    result.match_score = 1.0
 
                     self.populate_result(
                         result,
@@ -967,43 +870,36 @@ class OpenLibraryClient:
                     return result
 
         # ------------------------------------------------------------
-        # TITLE + AUTHOR
+        # 2. TITLE + AUTHOR FUZZY MATCH
         # ------------------------------------------------------------
 
-        results = self.search_books(
+        candidates = self.search_title_author(
             title=title,
             author=author,
         )
 
-        best_result, score = (
-            self.match_search_result(
-                title,
-                author,
-                results,
-            )
+        best_candidate = self._find_best_candidate(
+            candidates=candidates,
+            title=normalized_title,
+            author=normalized_author,
+            minimum_score=self.TITLE_THRESHOLD,
         )
 
-        if best_result is not None:
+        if best_candidate:
+            score = self._candidate_score(
+                best_candidate,
+                normalized_title,
+                normalized_author,
+            )
 
-            work, edition = (
-                self.enrich_search_result(
-                    best_result
-                )
+            work, edition = self.enrich_search_result(
+                best_candidate
             )
 
             if work:
-
-                result.status = (
-                    "matched"
-                )
-
-                result.matched_by = (
-                    "title_author"
-                )
-
-                result.match_score = (
-                    score
-                )
+                result.status = "matched"
+                result.matched_by = "author_fuzzy_title"
+                result.match_score = score
 
                 self.populate_result(
                     result,
@@ -1014,108 +910,50 @@ class OpenLibraryClient:
                 return result
 
         # ------------------------------------------------------------
-        # AUTHOR FALLBACK
+        # 3. AUTHOR-FIRST FALLBACK
+        # ------------------------------------------------------------
+        #
+        # THIS IS THE IMPORTANT PART THAT WAS LOST.
+        #
+        # Instead of searching by title and then checking the author,
+        # search the author's catalog first and find the best title
+        # match inside that catalog.
+        #
+        # This is much more useful for:
+        # - subtitle differences
+        # - series titles
+        # - punctuation differences
+        # - Goodreads/Open Library title differences
+        # - alternate title formatting
         # ------------------------------------------------------------
 
         if author:
-
-            results = self.search_books(
-                title=title
+            author_candidates = self.search_author(
+                author
             )
 
-            normalized_author = (
-                self.normalize_author(
-                    author
-                )
+            best_candidate = self._find_best_candidate(
+                candidates=author_candidates,
+                title=normalized_title,
+                author=normalized_author,
+                minimum_score=self.MATCH_THRESHOLD,
             )
 
-            best_result = None
-            best_score = 0.0
-
-            for candidate in results:
-
-                candidate_authors = (
-                    candidate.get(
-                        "author_name",
-                        [],
-                    )
+            if best_candidate:
+                score = self._candidate_score(
+                    best_candidate,
+                    normalized_title,
+                    normalized_author,
                 )
 
-                for candidate_author in (
-                    candidate_authors
-                ):
-
-                    author_score = (
-                        self.similarity(
-                            normalized_author,
-                            self.normalize_author(
-                                candidate_author
-                            ),
-                        )
-                    )
-
-                    if (
-                        author_score
-                        >= self.AUTHOR_THRESHOLD
-                    ):
-
-                        title_score = (
-                            self.similarity(
-                                self.normalize_title(
-                                    title
-                                ),
-                                self.normalize_title(
-                                    candidate.get(
-                                        "title",
-                                        "",
-                                    )
-                                ),
-                            )
-                        )
-
-                        score = (
-                            title_score * 0.7
-                            + author_score * 0.3
-                        )
-
-                        if (
-                            score
-                            > best_score
-                        ):
-
-                            best_score = (
-                                score
-                            )
-
-                            best_result = (
-                                candidate
-                            )
-
-            if (
-                best_result is not None
-                and best_score
-                >= self.MATCH_THRESHOLD
-            ):
-
-                work, edition = (
-                    self.enrich_search_result(
-                        best_result
-                    )
+                work, edition = self.enrich_search_result(
+                    best_candidate
                 )
 
                 if work:
-
-                    result.status = (
-                        "matched"
-                    )
-
-                    result.matched_by = (
-                        "author_fallback"
-                    )
-
-                    result.match_score = (
-                        best_score
-                    )
+                    result.status = "matched"
+                    result.matched_by = "author_scan_title"
+                    result.match_score = score
 
                     self.populate_result(
                         result,
@@ -1125,9 +963,11 @@ class OpenLibraryClient:
 
                     return result
 
-        result.status = (
-            "unmatched"
-        )
+        # ------------------------------------------------------------
+        # 4. NO RELIABLE MATCH
+        # ------------------------------------------------------------
+
+        result.status = "unmatched"
 
         return result
 
@@ -1141,50 +981,40 @@ class OpenLibraryClient:
         work: dict[str, Any],
         edition: dict[str, Any] | None,
     ) -> None:
-
         result.raw_work = work
         result.raw_edition = edition
 
-        work_key = work.get(
-            "key"
-        )
+        # ------------------------------------------------------------
+        # WORK / EDITION IDS
+        # ------------------------------------------------------------
+
+        work_key = work.get("key")
 
         if work_key:
-
             result.openlibrary_work_id = (
-                work_key.split(
-                    "/"
-                )[-1]
+                work_key.split("/")[-1]
             )
 
         if edition:
-
-            edition_key = (
-                edition.get(
-                    "key"
-                )
-            )
+            edition_key = edition.get("key")
 
             if edition_key:
-
                 result.openlibrary_edition_id = (
-                    edition_key.split(
-                        "/"
-                    )[-1]
+                    edition_key.split("/")[-1]
                 )
 
-        result.title = work.get(
-            "title"
-        )
+        # ------------------------------------------------------------
+        # TITLE
+        # ------------------------------------------------------------
 
-        if (
-            not result.title
-            and edition
-        ):
+        result.title = work.get("title")
 
-            result.title = edition.get(
-                "title"
-            )
+        if not result.title and edition:
+            result.title = edition.get("title")
+
+        # ------------------------------------------------------------
+        # AUTHORS
+        # ------------------------------------------------------------
 
         authors = []
 
@@ -1192,51 +1022,40 @@ class OpenLibraryClient:
             "authors",
             [],
         ):
-
             if not isinstance(
                 author_entry,
                 dict,
             ):
                 continue
 
-            author_key = (
-                author_entry.get(
-                    "author",
-                    {},
-                )
+            author_key = author_entry.get(
+                "author",
+                {},
             )
 
             if isinstance(
                 author_key,
                 dict,
             ):
-
-                author_key = (
-                    author_key.get(
-                        "key"
-                    )
-                )
+                author_key = author_key.get("key")
 
             if not author_key:
                 continue
 
-            author_name = (
-                self.resolve_author_name(
-                    author_key
-                )
+            author_name = self.resolve_author_name(
+                author_key
             )
 
             if author_name:
-
-                authors.append(
-                    author_name
-                )
+                authors.append(author_name)
 
         result.authors = list(
-            dict.fromkeys(
-                authors
-            )
+            dict.fromkeys(authors)
         )
+
+        # ------------------------------------------------------------
+        # PUBLICATION
+        # ------------------------------------------------------------
 
         result.publication_year = (
             self.extract_publication_year(
@@ -1245,11 +1064,13 @@ class OpenLibraryClient:
             )
         )
 
-        result.subjects = (
-            self.extract_subjects(
-                work,
-                edition,
-            )
+        # ------------------------------------------------------------
+        # SUBJECTS
+        # ------------------------------------------------------------
+
+        result.subjects = self.extract_subjects(
+            work,
+            edition,
         )
 
         result.subject_people = (
@@ -1273,6 +1094,10 @@ class OpenLibraryClient:
             )
         )
 
+        # ------------------------------------------------------------
+        # ISBNs
+        # ------------------------------------------------------------
+
         (
             result.isbn_10,
             result.isbn_13,
@@ -1280,10 +1105,12 @@ class OpenLibraryClient:
             edition
         )
 
-        result.cover_url = (
-            self.extract_cover_url(
-                edition
-            )
+        # ------------------------------------------------------------
+        # COVER
+        # ------------------------------------------------------------
+
+        result.cover_url = self.extract_cover_url(
+            edition
         )
 
 
@@ -1292,7 +1119,6 @@ def enrich_book(
     author: str,
     isbn: str | None = None,
 ) -> OpenLibraryEnrichment:
-
     client = OpenLibraryClient()
 
     return client.match_book(

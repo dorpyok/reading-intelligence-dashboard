@@ -7,3 +7,4 @@ umap-learn
 hdbscan
 scikit-learn
 matplotlib
+pytest

@@ -41,3 +41,24 @@ Enrichment      Analytics
            │
            ▼
        Public Tool
+
+## Machine Learning and Semantic Intelligence
+
+The Reading Intelligence Dashboard uses a staged ML architecture.
+
+External reading data is first ingested and transformed into the canonical reading model. Book records can then be enriched with external bibliographic metadata before semantic feature engineering.
+
+The current exploratory ML pipeline uses:
+
+- Sentence Transformers for semantic embeddings
+- UMAP for dimensionality reduction
+- HDBSCAN for unsupervised clustering
+- TF-IDF for cluster descriptor terms
+
+The current experiment compares a Goodreads-only baseline representation with a Goodreads + Open Library enriched representation.
+
+The clustering layer is intentionally separate from recommendation logic. Clusters describe naturally occurring neighborhoods within a reader's library, while semantic similarity can later support book-to-book recommendations.
+
+Future supervised modeling may incorporate reader ratings and reading behavior to learn individual preferences.
+
+See `docs/ml-clustering-experiment.md` for experiment results and limitations.
