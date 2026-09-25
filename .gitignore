@@ -5,3 +5,5 @@ __pycache__/
 .DS_Store
 data/raw/
 data/reading_intelligence.db
+# External reference datasets
+reading-reference-data/

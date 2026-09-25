@@ -62,3 +62,24 @@ The clustering layer is intentionally separate from recommendation logic. Cluste
 Future supervised modeling may incorporate reader ratings and reading behavior to learn individual preferences.
 
 See `docs/ml-clustering-experiment.md` for experiment results and limitations.
+
+Current Data Flow 
+Goodreads
+   ↓
+Ingestion
+   ↓
+Raw reading data
+   ↓
+Canonical reading model
+   ↓
+Open Library enrichment
+   ↓
+Book representation
+   ↓
+Analytics / ML
+   ↓
+Reader preference representation
+   ↓
+Recommendations
+   ↓
+Streamlit application
