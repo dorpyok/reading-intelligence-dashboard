@@ -44,7 +44,7 @@ def parse_book(entry, ingested_at: str) -> dict:
         "date_added": entry.get("user_date_added", ""),
         "date_created": entry.get("user_date_created", ""),
         "shelves": entry.get("user_shelves", ""),
-        "description": entry.get("description", ""),
+        "description": entry.get("book_description", ""),
         "publication_year": entry.get("published", ""),
         "cover_url": entry.get("book_large_image_url", ""),
         "goodreads_url": entry.get("link", ""),
