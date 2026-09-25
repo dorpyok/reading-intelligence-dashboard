@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 import requests
 
@@ -68,7 +69,6 @@ class OpenLibraryClient:
         request_delay: float = 0.1,
     ):
         self.cache_dir = cache_dir or CACHE_DIR
-
         self.cache_dir.mkdir(
             parents=True,
             exist_ok=True,
@@ -105,32 +105,50 @@ class OpenLibraryClient:
 
         return self.cache_dir / f"{url_hash}.json"
 
+    def _read_cache(self, cache_path: Path) -> dict[str, Any] | None:
+        try:
+            return json.loads(
+                cache_path.read_text(
+                    encoding="utf-8"
+                )
+            )
+        except (
+            json.JSONDecodeError,
+            OSError,
+        ):
+            return None
+
+    def _write_cache(
+        self,
+        cache_path: Path,
+        data: dict[str, Any],
+    ) -> None:
+        try:
+            cache_path.write_text(
+                json.dumps(
+                    data,
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            print(
+                "Warning: could not cache "
+                "Open Library response:"
+            )
+            print(f"  {exc}")
+
     def _get_json(
         self,
         url: str,
     ) -> dict[str, Any] | None:
         cache_path = self._cache_path(url)
 
-        # ------------------------------------------------------------
-        # CACHE LOOKUP
-        # ------------------------------------------------------------
+        cached = self._read_cache(cache_path)
 
-        if cache_path.exists():
-            try:
-                return json.loads(
-                    cache_path.read_text(
-                        encoding="utf-8"
-                    )
-                )
-            except (
-                json.JSONDecodeError,
-                OSError,
-            ):
-                pass
-
-        # ------------------------------------------------------------
-        # REQUEST
-        # ------------------------------------------------------------
+        if cached is not None:
+            return cached
 
         time.sleep(self.request_delay)
 
@@ -153,27 +171,36 @@ class OpenLibraryClient:
             print(f"  Error: {exc}")
             return None
 
-        # ------------------------------------------------------------
-        # CACHE RESPONSE
-        # ------------------------------------------------------------
-
-        try:
-            cache_path.write_text(
-                json.dumps(
-                    data,
-                    ensure_ascii=False,
-                    indent=2,
-                ),
-                encoding="utf-8",
+        if isinstance(data, dict):
+            self._write_cache(
+                cache_path,
+                data,
             )
-        except OSError as exc:
-            print(
-                "Warning: could not cache "
-                "Open Library response:"
-            )
-            print(f"  {exc}")
 
         return data
+
+    def _search_cache_url(
+        self,
+        params: dict[str, Any],
+    ) -> str:
+        """
+        Create a deterministic cache key for a search request.
+
+        Search responses were previously not cached, which meant
+        repeated runs and repeated books could make the same
+        Open Library search request again.
+        """
+        query = urlencode(
+            sorted(
+                (
+                    str(key),
+                    str(value),
+                )
+                for key, value in params.items()
+            )
+        )
+
+        return f"{self.BASE_URL}/search.json?{query}"
 
     # ================================================================
     # NORMALIZATION
@@ -188,14 +215,12 @@ class OpenLibraryClient:
 
         value = value.lower()
 
-        # Remove parenthetical series/subtitle information.
         value = re.sub(
             r"\([^)]*\)",
             "",
             value,
         )
 
-        # Keep only simple alphanumeric characters.
         value = re.sub(
             r"[^a-z0-9]+",
             " ",
@@ -310,8 +335,20 @@ class OpenLibraryClient:
         params: dict[str, Any],
     ) -> list[dict[str, Any]]:
         """
-        Execute an Open Library search request.
+        Execute and cache an Open Library search request.
+
+        This is the major performance improvement over the previous
+        implementation: search responses now use the same filesystem
+        cache as work/edition/author requests.
         """
+        cache_url = self._search_cache_url(params)
+        cache_path = self._cache_path(cache_url)
+
+        cached = self._read_cache(cache_path)
+
+        if cached is not None:
+            return cached.get("docs", [])
+
         time.sleep(self.request_delay)
 
         try:
@@ -331,6 +368,12 @@ class OpenLibraryClient:
             print(f"  Error: {exc}")
             return []
 
+        if isinstance(data, dict):
+            self._write_cache(
+                cache_path,
+                data,
+            )
+
         return data.get("docs", [])
 
     def search_books(
@@ -338,9 +381,6 @@ class OpenLibraryClient:
         title: str,
         author: str | None = None,
     ) -> list[dict[str, Any]]:
-        """
-        Search Open Library by title, optionally constrained by author.
-        """
         params: dict[str, Any] = {
             "title": title,
             "limit": self.SEARCH_LIMIT,
@@ -356,9 +396,6 @@ class OpenLibraryClient:
         title: str,
         author: str,
     ) -> list[dict[str, Any]]:
-        """
-        Search using both title and author.
-        """
         return self.search_books(
             title=title,
             author=author,
@@ -368,12 +405,6 @@ class OpenLibraryClient:
         self,
         author: str,
     ) -> list[dict[str, Any]]:
-        """
-        Search Open Library by author alone.
-
-        This is intentionally used as a fallback when a
-        title + author search does not produce a reliable match.
-        """
         params = {
             "author": author,
             "limit": self.SEARCH_LIMIT,
@@ -452,10 +483,8 @@ class OpenLibraryClient:
             ):
                 if isinstance(subject, str):
                     subjects.append(subject)
-
                 elif isinstance(subject, dict):
                     name = subject.get("name")
-
                     if name:
                         subjects.append(str(name))
 
@@ -466,10 +495,8 @@ class OpenLibraryClient:
             ):
                 if isinstance(subject, str):
                     subjects.append(subject)
-
                 elif isinstance(subject, dict):
                     name = subject.get("name")
-
                     if name:
                         subjects.append(str(name))
 
@@ -638,12 +665,6 @@ class OpenLibraryClient:
         target_title: str,
         target_author: str,
     ) -> float:
-        """
-        Score a candidate using:
-
-        70% title similarity
-        30% author similarity
-        """
         candidate_title = self.normalize_title(
             candidate.get("title", "")
         )
@@ -686,13 +707,6 @@ class OpenLibraryClient:
         author: str,
         minimum_score: float,
     ) -> dict[str, Any] | None:
-        """
-        Find the best candidate while requiring a strong
-        author match.
-
-        This prevents a similar title by a different author
-        from being accepted.
-        """
         best = None
         best_score = 0.0
 
@@ -718,8 +732,6 @@ class OpenLibraryClient:
                 default=0.0,
             )
 
-            # Never accept a title match with a clearly
-            # different author.
             if author_score < self.AUTHOR_THRESHOLD:
                 continue
 
@@ -748,12 +760,6 @@ class OpenLibraryClient:
         dict[str, Any] | None,
         float,
     ]:
-        """
-        Match a search result against a title and author.
-
-        The default threshold is the original title+author
-        matching threshold.
-        """
         normalized_title = self.normalize_title(title)
         normalized_author = self.normalize_author(author)
 
@@ -792,10 +798,6 @@ class OpenLibraryClient:
         dict[str, Any] | None,
         dict[str, Any] | None,
     ]:
-        """
-        Convert an Open Library search result into its
-        Work and first available Edition.
-        """
         work_key = result.get("key")
 
         if not work_key:
@@ -912,20 +914,6 @@ class OpenLibraryClient:
         # ------------------------------------------------------------
         # 3. AUTHOR-FIRST FALLBACK
         # ------------------------------------------------------------
-        #
-        # THIS IS THE IMPORTANT PART THAT WAS LOST.
-        #
-        # Instead of searching by title and then checking the author,
-        # search the author's catalog first and find the best title
-        # match inside that catalog.
-        #
-        # This is much more useful for:
-        # - subtitle differences
-        # - series titles
-        # - punctuation differences
-        # - Goodreads/Open Library title differences
-        # - alternate title formatting
-        # ------------------------------------------------------------
 
         if author:
             author_candidates = self.search_author(
@@ -984,10 +972,6 @@ class OpenLibraryClient:
         result.raw_work = work
         result.raw_edition = edition
 
-        # ------------------------------------------------------------
-        # WORK / EDITION IDS
-        # ------------------------------------------------------------
-
         work_key = work.get("key")
 
         if work_key:
@@ -1003,18 +987,10 @@ class OpenLibraryClient:
                     edition_key.split("/")[-1]
                 )
 
-        # ------------------------------------------------------------
-        # TITLE
-        # ------------------------------------------------------------
-
         result.title = work.get("title")
 
         if not result.title and edition:
             result.title = edition.get("title")
-
-        # ------------------------------------------------------------
-        # AUTHORS
-        # ------------------------------------------------------------
 
         authors = []
 
@@ -1053,20 +1029,12 @@ class OpenLibraryClient:
             dict.fromkeys(authors)
         )
 
-        # ------------------------------------------------------------
-        # PUBLICATION
-        # ------------------------------------------------------------
-
         result.publication_year = (
             self.extract_publication_year(
                 work,
                 edition,
             )
         )
-
-        # ------------------------------------------------------------
-        # SUBJECTS
-        # ------------------------------------------------------------
 
         result.subjects = self.extract_subjects(
             work,
@@ -1094,20 +1062,12 @@ class OpenLibraryClient:
             )
         )
 
-        # ------------------------------------------------------------
-        # ISBNs
-        # ------------------------------------------------------------
-
         (
             result.isbn_10,
             result.isbn_13,
         ) = self.extract_isbns(
             edition
         )
-
-        # ------------------------------------------------------------
-        # COVER
-        # ------------------------------------------------------------
 
         result.cover_url = self.extract_cover_url(
             edition
