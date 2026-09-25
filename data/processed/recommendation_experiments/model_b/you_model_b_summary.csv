@@ -1,0 +1,3 @@
+reader,selected_k,selected_k,recall_at_10,recall_at_10,recall_at_25,recall_at_25,recall_at_50,recall_at_50,mean_held_out_similarity,mean_held_out_similarity,median_held_out_similarity,median_held_out_similarity,mean_rank_percentile,mean_rank_percentile,median_rank_percentile,median_rank_percentile
+,mean,std,mean,std,mean,std,mean,std,mean,std,mean,std,mean,std,mean,std
+you,5.6,0.8944271909999159,0.1631578947368421,0.05545080922554073,0.24526315789473685,0.05760694017899842,0.4089473684210526,0.11315177462029925,0.6596244040288424,0.016857722327912616,0.6588025450706482,0.017797791807099676,0.7542090602550945,0.04169191745439976,0.8236768802228411,0.04915862411177684

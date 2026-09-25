@@ -1,0 +1,91 @@
+reader,selected_k,interest_number,interest_rank,book_index,source_book_id,title,author,user_rating,interest_similarity
+you,5,1,1,115,https://www.goodreads.com/review/show/8339367460?utm_medium=api&utm_source=rss,"Throne of Glass (Throne of Glass, #1)",Sarah J. Maas,4,0.9120439887046814
+you,5,1,2,94,https://www.goodreads.com/review/show/8548823314?utm_medium=api&utm_source=rss,"Empire of Storms (Throne of Glass, #5)",Sarah J. Maas,5,0.9012750387191772
+you,5,1,3,89,https://www.goodreads.com/review/show/8596407548?utm_medium=api&utm_source=rss,"Tower of Dawn (Throne of Glass, #6)",Sarah J. Maas,5,0.8941746950149536
+you,5,1,4,102,https://www.goodreads.com/review/show/8339368121?utm_medium=api&utm_source=rss,"Heir of Fire (Throne of Glass, #3)",Sarah J. Maas,4,0.8855592012405396
+you,5,1,5,140,https://www.goodreads.com/review/show/8339367343?utm_medium=api&utm_source=rss,"A Court of Mist and Fury (A Court of Thorns and Roses, #2)",Sarah J. Maas,5,0.8802193999290466
+you,5,1,6,109,https://www.goodreads.com/review/show/8339368038?utm_medium=api&utm_source=rss,"Crown of Midnight (Throne of Glass, #2)",Sarah J. Maas,5,0.871527910232544
+you,5,1,7,75,https://www.goodreads.com/review/show/8339367701?utm_medium=api&utm_source=rss,"A Court of Frost and Starlight (A Court of Thorns and Roses, #4)",Sarah J. Maas,4,0.8704888820648193
+you,5,1,8,64,https://www.goodreads.com/review/show/8339367570?utm_medium=api&utm_source=rss,"A ​Court of Silver Flames (A Court of Thorns and Roses, #5)",Sarah J. Maas,5,0.8704372644424438
+you,5,1,9,139,https://www.goodreads.com/review/show/8339367406?utm_medium=api&utm_source=rss,"A Court of Wings and Ruin (A Court of Thorns and Roses, #3)",Sarah J. Maas,5,0.8695071935653687
+you,5,1,10,86,https://www.goodreads.com/review/show/8548823350?utm_medium=api&utm_source=rss,"Kingdom of Ash (Throne of Glass, #7)",Sarah J. Maas,5,0.852912962436676
+you,5,2,1,335,https://www.goodreads.com/review/show/1869931667?utm_medium=api&utm_source=rss,The Bell Jar,Sylvia Plath,5,0.7520499229431152
+you,5,2,2,213,https://www.goodreads.com/review/show/8339348371?utm_medium=api&utm_source=rss,Tilt,Emma Pattee,5,0.7472901344299316
+you,5,2,3,297,https://www.goodreads.com/review/show/3610762155?utm_medium=api&utm_source=rss,The Lions of Fifth Avenue,Fiona  Davis,5,0.7436416745185852
+you,5,2,4,301,https://www.goodreads.com/review/show/3591636902?utm_medium=api&utm_source=rss,Fifty Words for Rain,Asha Lemmie,5,0.7415072321891785
+you,5,2,5,114,https://www.goodreads.com/review/show/8504212480?utm_medium=api&utm_source=rss,"The Midnight Library (The Midnight World, #1)",Matt Haig,5,0.7407141923904419
+you,5,2,6,40,https://www.goodreads.com/review/show/8779497053?utm_medium=api&utm_source=rss,"The Housemaid's Wedding (The Housemaid, #2.5)",Freida McFadden,5,0.7372754812240601
+you,5,2,7,36,https://www.goodreads.com/review/show/8779495939?utm_medium=api&utm_source=rss,"The Housemaid is Watching (The Housemaid, #3)",Freida McFadden,4,0.7354131937026978
+you,5,2,8,299,https://www.goodreads.com/review/show/3687686187?utm_medium=api&utm_source=rss,In a Holidaze,Christina Lauren,5,0.7328625917434692
+you,5,2,9,47,https://www.goodreads.com/review/show/8779489405?utm_medium=api&utm_source=rss,"The Housemaid's Secret (The Housemaid, #2)",Freida McFadden,5,0.7273483276367188
+you,5,2,10,296,https://www.goodreads.com/review/show/3989392207?utm_medium=api&utm_source=rss,"The House in the Cerulean Sea (Cerulean Chronicles, #1)",T.J. Klune,5,0.7253841757774353
+you,5,3,1,55,https://www.goodreads.com/review/show/8734455183?utm_medium=api&utm_source=rss,"Roots of Darkness (The Ashen, #2.5)",Demi Winters,5,0.783819317817688
+you,5,3,2,78,https://www.goodreads.com/review/show/8652999512?utm_medium=api&utm_source=rss,"A Heart of Desire and Deceit (The Choosing Chronicles, #2)",Elayna R. Gallea,4,0.7482229471206665
+you,5,3,3,80,https://www.goodreads.com/review/show/8393926688?utm_medium=api&utm_source=rss,"A Game of Love and Betrayal (The Choosing Chronicles, #1)",Elayna R. Gallea,4,0.7456536293029785
+you,5,3,4,53,https://www.goodreads.com/review/show/8734454712?utm_medium=api&utm_source=rss,"Dawn of the North (The Ashen, #3)",Demi Winters,5,0.737152099609375
+you,5,3,5,215,https://www.goodreads.com/review/show/8339349513?utm_medium=api&utm_source=rss,"Iron Flame (The Empyrean, #2)",Rebecca Yarros,5,0.7231646776199341
+you,5,3,6,19,https://www.goodreads.com/review/show/8861507375?utm_medium=api&utm_source=rss,"Glow of the Everflame (Kindred's Curse, #2)",Penn Cole,5,0.7215234041213989
+you,5,3,7,214,https://www.goodreads.com/review/show/8339349950?utm_medium=api&utm_source=rss,"Onyx Storm (The Empyrean, #3)",Rebecca Yarros,5,0.7156925201416016
+you,5,3,8,52,https://www.goodreads.com/review/show/8711799546?utm_medium=api&utm_source=rss,"Kingdom of Claw (The Ashen, #2)",Demi Winters,5,0.7149242162704468
+you,5,3,9,61,https://www.goodreads.com/review/show/8342368970?utm_medium=api&utm_source=rss,"The Road of Bones (The Ashen, #1)",Demi Winters,4,0.710705041885376
+you,5,3,10,27,https://www.goodreads.com/review/show/8342401355?utm_medium=api&utm_source=rss,"Spark of the Everflame (Kindred's Curse, #1)",Penn Cole,5,0.7064086198806763
+you,5,4,1,341,https://www.goodreads.com/review/show/1868867698?utm_medium=api&utm_source=rss,The Martian,Andy Weir,5,0.7473362684249878
+you,5,4,2,308,https://www.goodreads.com/review/show/2103471511?utm_medium=api&utm_source=rss,"American Gods (American Gods, #1)",Neil Gaiman,5,0.7369939088821411
+you,5,4,3,317,https://www.goodreads.com/review/show/3299978559?utm_medium=api&utm_source=rss,"The Fifth Season (The Broken Earth, #1)",N.K. Jemisin,5,0.7357175350189209
+you,5,4,4,74,https://www.goodreads.com/review/show/8339389377?utm_medium=api&utm_source=rss,"Hyperion (Hyperion Cantos, #1)",Dan Simmons,5,0.7318366169929504
+you,5,4,5,305,https://www.goodreads.com/review/show/3563814998?utm_medium=api&utm_source=rss,Artemis,Andy Weir,4,0.694847583770752
+you,5,4,6,350,https://www.goodreads.com/review/show/1868853305?utm_medium=api&utm_source=rss,Enchanters' End Game (The Belgariad #5),David Eddings,4,0.6889841556549072
+you,5,4,7,356,https://www.goodreads.com/review/show/1868810859?utm_medium=api&utm_source=rss,Lord of the Flies,William Golding,4,0.687368631362915
+you,5,4,8,56,https://www.goodreads.com/review/show/8401614416?utm_medium=api&utm_source=rss,"Dungeon Crawler Carl (Dungeon Crawler Carl, #1)",Matt Dinniman,4,0.685603141784668
+you,5,4,9,346,https://www.goodreads.com/review/show/1868855057?utm_medium=api&utm_source=rss,"Pawn of Prophecy (The Belgariad, #1)",David Eddings,5,0.6838455200195312
+you,5,4,10,30,https://www.goodreads.com/review/show/8833996531?utm_medium=api&utm_source=rss,"Carl's Doomsday Scenario (Dungeon Crawler Carl, #2)",Matt Dinniman,5,0.6755266785621643
+you,5,5,1,344,https://www.goodreads.com/review/show/1868865365?utm_medium=api&utm_source=rss,"Harry Potter and the Sorcerer's Stone (Harry Potter, #1)",J.K. Rowling,4,0.7697060108184814
+you,5,5,2,349,https://www.goodreads.com/review/show/1868853931?utm_medium=api&utm_source=rss,"A Wrinkle in Time (Time Quintet, #1)",Madeleine L'Engle,5,0.7686858177185059
+you,5,5,3,343,https://www.goodreads.com/review/show/1868865833?utm_medium=api&utm_source=rss,All the Light We Cannot See,Anthony Doerr,4,0.7652995586395264
+you,5,5,4,340,https://www.goodreads.com/review/show/1868867967?utm_medium=api&utm_source=rss,The Scarlet Letter,Nathaniel Hawthorne,4,0.736583948135376
+you,5,5,5,333,https://www.goodreads.com/review/show/1974215160?utm_medium=api&utm_source=rss,"The Da Vinci Code (Robert Langdon, #2)",Dan    Brown,4,0.7331531047821045
+you,5,5,6,357,https://www.goodreads.com/review/show/1868810235?utm_medium=api&utm_source=rss,Tess of the D’Urbervilles,Thomas Hardy,4,0.7203526496887207
+you,5,5,7,355,https://www.goodreads.com/review/show/1868812226?utm_medium=api&utm_source=rss,"The Fellowship of the Ring (The Lord of the Rings, #1)",J.R.R. Tolkien,5,0.7110608816146851
+you,5,5,8,342,https://www.goodreads.com/review/show/1868867068?utm_medium=api&utm_source=rss,"The Girl With the Dragon Tattoo (Millennium, #1)",Stieg Larsson,4,0.7092791795730591
+you,5,5,9,332,https://www.goodreads.com/review/show/2002108476?utm_medium=api&utm_source=rss,Thirteen Reasons Why,Jay Asher,4,0.6678692698478699
+you,5,5,10,329,https://www.goodreads.com/review/show/2076758636?utm_medium=api&utm_source=rss,"Storm Front (The Dresden Files, #1)",Jim  Butcher,4,0.6390889883041382
+sarah,2,1,1,723,198716261,"Not in Love (Not in Love, #1)",Ali Hazelwood,4,0.7355958223342896
+sarah,2,1,2,896,17406944,"Beautiful Stranger (Beautiful Bastard, #2)",Christina Lauren,4,0.7312296628952026
+sarah,2,1,3,1115,49976087,"Take a Hint, Dani Brown (The Brown Sisters, #2)",Talia Hibbert,4,0.7189603447914124
+sarah,2,1,4,1226,25883848,The Hating Game,Sally  Thorne,4,0.7106722593307495
+sarah,2,1,5,641,61270473,Exes and O's (The Influencer #2),Amy  Lea,4,0.7060106992721558
+sarah,2,1,6,1113,51824384,"Act Your Age, Eve Brown (The Brown Sisters, #3)",Talia Hibbert,4,0.6971232295036316
+sarah,2,1,7,726,199334767,Same Time Next Year,Tessa Bailey,4,0.6962767243385315
+sarah,2,1,8,1247,39854434,"Fix Her Up (Hot & Hammered, #1)",Tessa Bailey,4,0.6928503513336182
+sarah,2,1,9,1217,25809756,"Shopaholic to the Rescue (Shopaholic, #8)",Sophie Kinsella,4,0.6869142055511475
+sarah,2,1,10,1233,49099926,"Party of Two (The Wedding Date, #5)",Jasmine Guillory,4,0.6838991641998291
+sarah,2,2,1,1275,33574273,"A Wrinkle in Time (Time Quintet, #1)",Madeleine L'Engle,4,0.7735744714736938
+sarah,2,2,2,1296,39988,Matilda,Roald Dahl,5,0.7443443536758423
+sarah,2,2,3,1200,231804,The Outsiders,S.E. Hinton,4,0.7206398844718933
+sarah,2,2,4,662,49750,An Abundance of Katherines,John  Green,4,0.7205823659896851
+sarah,2,2,5,1180,1934,"Little Women (Little Women, #1)",Louisa May Alcott,5,0.7168939113616943
+sarah,2,2,6,1178,6442769,Paper Towns,John  Green,5,0.7166820764541626
+sarah,2,2,7,1198,38709,"Holes (Holes, #1)",Louis Sachar,5,0.7132375836372375
+sarah,2,2,8,1280,17157681,"The Hobbit, Part One",J.R.R. Tolkien,4,0.7115261554718018
+sarah,2,2,9,1172,4214,Life of Pi,Yann Martel,5,0.7110733389854431
+sarah,2,2,10,1301,18619684,The Time Traveler's Wife,Audrey Niffenegger,4,0.7105484008789062
+shannon,2,1,1,1149,40017404,Pretty Girls,Karin Slaughter,4,0.7805903553962708
+shannon,2,1,2,921,198822632,All Good People Here,Ashley Flowers,4,0.7718952894210815
+shannon,2,1,3,1528,46219178,Little Secrets,Jennifer Hillier,4,0.7630432844161987
+shannon,2,1,4,267,227948521,Finders Keepers,Natalie Barelli,5,0.7595968842506409
+shannon,2,1,5,1494,35297426,Then She Was Gone,Lisa Jewell,4,0.7577295899391174
+shannon,2,1,6,1341,31443398,The Perfect Stranger,Megan Miranda,4,0.7556713819503784
+shannon,2,1,7,1812,7812659,Safe Haven,Nicholas Sparks,5,0.7416499853134155
+shannon,2,1,8,1678,29437949,Behind Closed Doors,B.A. Paris,4,0.7383056879043579
+shannon,2,1,9,1242,57940030,Twenty Years Later,Charlie Donlea,4,0.7337244749069214
+shannon,2,1,10,1364,55347114,The Last One Home,Victoria Helen Stone,4,0.7336981892585754
+shannon,2,2,1,1396,53610135,"Fortuity (Transcend, #3)",Jewel E. Ann,4,0.7492166757583618
+shannon,2,2,2,1813,531350,The Choice,Nicholas Sparks,4,0.7484312057495117
+shannon,2,2,3,850,60825653,The Soulmate,Sally Hepworth,4,0.736947774887085
+shannon,2,2,4,1844,10766509,The Best of Me,Nicholas Sparks,4,0.7267342805862427
+shannon,2,2,5,1139,27189194,One True Loves,Taylor Jenkins Reid,4,0.725429892539978
+shannon,2,2,6,7,241715892,Someone Else's Husband,Kimberly McCreight,4,0.7211286425590515
+shannon,2,2,7,406,243725515,Brighter than Before,Courtney Walsh,5,0.7149296998977661
+shannon,2,2,8,1362,60742352,June First,Jennifer Hartmann,5,0.7092671394348145
+shannon,2,2,9,1759,16058281,"The Stranger (Just One Night, #1.1)",Kyra Davis,4,0.7075684070587158
+shannon,2,2,10,44,214269328,"Promise Me Sunshine (Hearts of New York, #2)",Cara Bastone,5,0.7056125998497009

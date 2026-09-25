@@ -1,0 +1,61 @@
+reader,selected_k,interest_number,interest_rank,book_index,source_book_id,title,author,user_rating,interest_similarity
+you,2,1,1,86,https://www.goodreads.com/review/show/8548823350?utm_medium=api&utm_source=rss,"Kingdom of Ash (Throne of Glass, #7)",Sarah J. Maas,5,0.7663385272026062
+you,2,1,2,102,https://www.goodreads.com/review/show/8339368121?utm_medium=api&utm_source=rss,"Heir of Fire (Throne of Glass, #3)",Sarah J. Maas,4,0.7536648511886597
+you,2,1,3,75,https://www.goodreads.com/review/show/8339367701?utm_medium=api&utm_source=rss,"A Court of Frost and Starlight (A Court of Thorns and Roses, #4)",Sarah J. Maas,4,0.7469788789749146
+you,2,1,4,53,https://www.goodreads.com/review/show/8734454712?utm_medium=api&utm_source=rss,"Dawn of the North (The Ashen, #3)",Demi Winters,5,0.7457765340805054
+you,2,1,5,64,https://www.goodreads.com/review/show/8339367570?utm_medium=api&utm_source=rss,"A ​Court of Silver Flames (A Court of Thorns and Roses, #5)",Sarah J. Maas,5,0.7454663515090942
+you,2,1,6,94,https://www.goodreads.com/review/show/8548823314?utm_medium=api&utm_source=rss,"Empire of Storms (Throne of Glass, #5)",Sarah J. Maas,5,0.7427493929862976
+you,2,1,7,115,https://www.goodreads.com/review/show/8339367460?utm_medium=api&utm_source=rss,"Throne of Glass (Throne of Glass, #1)",Sarah J. Maas,4,0.7357391119003296
+you,2,1,8,139,https://www.goodreads.com/review/show/8339367406?utm_medium=api&utm_source=rss,"A Court of Wings and Ruin (A Court of Thorns and Roses, #3)",Sarah J. Maas,5,0.7328848242759705
+you,2,1,9,109,https://www.goodreads.com/review/show/8339368038?utm_medium=api&utm_source=rss,"Crown of Midnight (Throne of Glass, #2)",Sarah J. Maas,5,0.730191707611084
+you,2,1,10,140,https://www.goodreads.com/review/show/8339367343?utm_medium=api&utm_source=rss,"A Court of Mist and Fury (A Court of Thorns and Roses, #2)",Sarah J. Maas,5,0.724437952041626
+you,2,2,1,349,https://www.goodreads.com/review/show/1868853931?utm_medium=api&utm_source=rss,"A Wrinkle in Time (Time Quintet, #1)",Madeleine L'Engle,5,0.7005816698074341
+you,2,2,2,114,https://www.goodreads.com/review/show/8504212480?utm_medium=api&utm_source=rss,"The Midnight Library (The Midnight World, #1)",Matt Haig,5,0.6829257011413574
+you,2,2,3,317,https://www.goodreads.com/review/show/3299978559?utm_medium=api&utm_source=rss,"The Fifth Season (The Broken Earth, #1)",N.K. Jemisin,5,0.6772631406784058
+you,2,2,4,336,https://www.goodreads.com/review/show/1948249322?utm_medium=api&utm_source=rss,Big Little Lies,Liane Moriarty,4,0.6757059097290039
+you,2,2,5,343,https://www.goodreads.com/review/show/1868865833?utm_medium=api&utm_source=rss,All the Light We Cannot See,Anthony Doerr,4,0.6726877689361572
+you,2,2,6,335,https://www.goodreads.com/review/show/1869931667?utm_medium=api&utm_source=rss,The Bell Jar,Sylvia Plath,5,0.6692776679992676
+you,2,2,7,216,https://www.goodreads.com/review/show/8339347856?utm_medium=api&utm_source=rss,"Fourth Wing (The Empyrean, #1)",Rebecca Yarros,5,0.6572496891021729
+you,2,2,8,150,https://www.goodreads.com/review/show/8342513870?utm_medium=api&utm_source=rss,"Lights Out (Into Darkness, #1)",Navessa Allen,5,0.657052218914032
+you,2,2,9,342,https://www.goodreads.com/review/show/1868867068?utm_medium=api&utm_source=rss,"The Girl With the Dragon Tattoo (Millennium, #1)",Stieg Larsson,4,0.6543160080909729
+you,2,2,10,328,https://www.goodreads.com/review/show/2076760419?utm_medium=api&utm_source=rss,"The Handmaid’s Tale (The Handmaid's Tale, #1)",Margaret Atwood,5,0.6479765176773071
+sarah,2,1,1,724,https://www.goodreads.com/review/show/6689982439?utm_medium=api&utm_source=rss,"Not in Love (Not in Love, #1)",Ali Hazelwood,4,0.7345672249794006
+sarah,2,1,2,897,https://www.goodreads.com/review/show/4903651580?utm_medium=api&utm_source=rss,"Beautiful Stranger (Beautiful Bastard, #2)",Christina Lauren,4,0.7302775382995605
+sarah,2,1,3,1116,https://www.goodreads.com/review/show/3981931723?utm_medium=api&utm_source=rss,"Take a Hint, Dani Brown (The Brown Sisters, #2)",Talia Hibbert,4,0.7188521027565002
+sarah,2,1,4,1227,https://www.goodreads.com/review/show/3776438769?utm_medium=api&utm_source=rss,The Hating Game,Sally  Thorne,4,0.7115350961685181
+sarah,2,1,5,642,https://www.goodreads.com/review/show/5209859857?utm_medium=api&utm_source=rss,Exes and O's (The Influencer #2),Amy  Lea,4,0.7057483196258545
+sarah,2,1,6,727,https://www.goodreads.com/review/show/6509850524?utm_medium=api&utm_source=rss,Same Time Next Year,Tessa Bailey,4,0.6989034414291382
+sarah,2,1,7,1114,https://www.goodreads.com/review/show/3981937561?utm_medium=api&utm_source=rss,"Act Your Age, Eve Brown (The Brown Sisters, #3)",Talia Hibbert,4,0.6956992149353027
+sarah,2,1,8,1248,https://www.goodreads.com/review/show/3776404526?utm_medium=api&utm_source=rss,"Fix Her Up (Hot & Hammered, #1)",Tessa Bailey,4,0.6920082569122314
+sarah,2,1,9,1218,https://www.goodreads.com/review/show/3776443801?utm_medium=api&utm_source=rss,"Shopaholic to the Rescue (Shopaholic, #8)",Sophie Kinsella,4,0.6857591867446899
+sarah,2,1,10,1234,https://www.goodreads.com/review/show/3776426463?utm_medium=api&utm_source=rss,"Party of Two (The Wedding Date, #5)",Jasmine Guillory,4,0.6845735311508179
+sarah,2,2,1,1276,https://www.goodreads.com/review/show/3222335156?utm_medium=api&utm_source=rss,"A Wrinkle in Time (Time Quintet, #1)",Madeleine L'Engle,4,0.7730194926261902
+sarah,2,2,2,1297,https://www.goodreads.com/review/show/3222333122?utm_medium=api&utm_source=rss,Matilda,Roald Dahl,5,0.7448383569717407
+sarah,2,2,3,663,https://www.goodreads.com/review/show/3222332998?utm_medium=api&utm_source=rss,An Abundance of Katherines,John  Green,4,0.7201159000396729
+sarah,2,2,4,1201,https://www.goodreads.com/review/show/3776455666?utm_medium=api&utm_source=rss,The Outsiders,S.E. Hinton,4,0.7189803123474121
+sarah,2,2,5,1181,https://www.goodreads.com/review/show/3776458817?utm_medium=api&utm_source=rss,"Little Women (Little Women, #1)",Louisa May Alcott,5,0.7157098054885864
+sarah,2,2,6,1179,https://www.goodreads.com/review/show/3776459250?utm_medium=api&utm_source=rss,Paper Towns,John  Green,5,0.7148811221122742
+sarah,2,2,7,1199,https://www.goodreads.com/review/show/3776456097?utm_medium=api&utm_source=rss,"Holes (Holes, #1)",Louis Sachar,5,0.7123020887374878
+sarah,2,2,8,1173,https://www.goodreads.com/review/show/3776461348?utm_medium=api&utm_source=rss,Life of Pi,Yann Martel,5,0.7114477157592773
+sarah,2,2,9,1302,https://www.goodreads.com/review/show/3222332537?utm_medium=api&utm_source=rss,The Time Traveler's Wife,Audrey Niffenegger,4,0.7113994359970093
+sarah,2,2,10,1281,https://www.goodreads.com/review/show/3222334451?utm_medium=api&utm_source=rss,"The Hobbit, Part One",J.R.R. Tolkien,4,0.7109156847000122
+shannon,2,1,1,1149,https://www.goodreads.com/review/show/5712158506?utm_medium=api&utm_source=rss,Pretty Girls,Karin Slaughter,4,0.7806057929992676
+shannon,2,1,2,921,https://www.goodreads.com/review/show/6018626368?utm_medium=api&utm_source=rss,All Good People Here,Ashley Flowers,4,0.7719470858573914
+shannon,2,1,3,1528,https://www.goodreads.com/review/show/3356599066?utm_medium=api&utm_source=rss,Little Secrets,Jennifer Hillier,4,0.7630442380905151
+shannon,2,1,4,267,https://www.goodreads.com/review/show/8640070517?utm_medium=api&utm_source=rss,Finders Keepers,Natalie Barelli,5,0.7596181631088257
+shannon,2,1,5,1494,https://www.goodreads.com/review/show/3725030587?utm_medium=api&utm_source=rss,Then She Was Gone,Lisa Jewell,4,0.7577323913574219
+shannon,2,1,6,1341,https://www.goodreads.com/review/show/4810438092?utm_medium=api&utm_source=rss,The Perfect Stranger,Megan Miranda,4,0.7557592391967773
+shannon,2,1,7,1812,https://www.goodreads.com/review/show/495936885?utm_medium=api&utm_source=rss,Safe Haven,Nicholas Sparks,5,0.7417094707489014
+shannon,2,1,8,1678,https://www.goodreads.com/review/show/2423481263?utm_medium=api&utm_source=rss,Behind Closed Doors,B.A. Paris,4,0.7383551597595215
+shannon,2,1,9,1242,https://www.goodreads.com/review/show/5267965144?utm_medium=api&utm_source=rss,Twenty Years Later,Charlie Donlea,4,0.733807384967804
+shannon,2,1,10,1364,https://www.goodreads.com/review/show/4760936018?utm_medium=api&utm_source=rss,The Last One Home,Victoria Helen Stone,4,0.7337338924407959
+shannon,2,2,1,1396,https://www.goodreads.com/review/show/4435957566?utm_medium=api&utm_source=rss,"Fortuity (Transcend, #3)",Jewel E. Ann,4,0.7492450475692749
+shannon,2,2,2,1813,https://www.goodreads.com/review/show/495936789?utm_medium=api&utm_source=rss,The Choice,Nicholas Sparks,4,0.7484697103500366
+shannon,2,2,3,850,https://www.goodreads.com/review/show/5216716825?utm_medium=api&utm_source=rss,The Soulmate,Sally Hepworth,4,0.7369555234909058
+shannon,2,2,4,1844,https://www.goodreads.com/review/show/452444259?utm_medium=api&utm_source=rss,The Best of Me,Nicholas Sparks,4,0.7267681360244751
+shannon,2,2,5,1139,https://www.goodreads.com/review/show/5835860271?utm_medium=api&utm_source=rss,One True Loves,Taylor Jenkins Reid,4,0.7254754304885864
+shannon,2,2,6,7,https://www.goodreads.com/review/show/8442198250?utm_medium=api&utm_source=rss,Someone Else's Husband,Kimberly McCreight,4,0.7211651802062988
+shannon,2,2,7,406,https://www.goodreads.com/review/show/8519457059?utm_medium=api&utm_source=rss,Brighter than Before,Courtney Walsh,5,0.7149197459220886
+shannon,2,2,8,1362,https://www.goodreads.com/review/show/4766683412?utm_medium=api&utm_source=rss,June First,Jennifer Hartmann,5,0.7092363834381104
+shannon,2,2,9,1759,https://www.goodreads.com/review/show/752291756?utm_medium=api&utm_source=rss,"The Stranger (Just One Night, #1.1)",Kyra Davis,4,0.7076113820075989
+shannon,2,2,10,44,https://www.goodreads.com/review/show/8905694016?utm_medium=api&utm_source=rss,"Promise Me Sunshine (Hearts of New York, #2)",Cara Bastone,5,0.7056287527084351

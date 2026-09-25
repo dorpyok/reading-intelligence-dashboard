@@ -1,0 +1,22 @@
+{
+  "model": "Model C \u2014 Multi-Interest + Multi-Label Reading DNA",
+  "embedding_model": "all-MiniLM-L6-v2",
+  "cluster_algorithm": "KMeans",
+  "cluster_count": 6,
+  "cluster_tuning_min_k": 6,
+  "cluster_tuning_max_k": 18,
+  "cluster_selection": {
+    "minimum_stability_ari": 0.7,
+    "minimum_cluster_fraction": 0.01,
+    "primary_metric": "silhouette_mean",
+    "tie_break": "lower_k"
+  },
+  "attribute_source": "Open Library subjects",
+  "evidence_streams": [
+    "preference",
+    "exposure",
+    "intent"
+  ],
+  "weighting": null,
+  "random_state": 42
+}
