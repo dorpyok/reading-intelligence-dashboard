@@ -16,7 +16,7 @@ from sklearn.model_selection import KFold
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.analytics.metadata_normalization import build_book_text
+from src.analytics.metadata_normalization import build_semantic_text
 
 
 DEFAULT_MODEL_NAME = "all-MiniLM-L6-v2"
@@ -118,20 +118,19 @@ def load_reader_data(reader: str) -> pd.DataFrame:
 def build_book_texts(
     dataframe: pd.DataFrame,
 ) -> list[str]:
-    """Build semantic text representations for each book."""
+    """Build semantic text representations using Semantic Representation v1."""
 
     texts = []
 
     for _, row in dataframe.iterrows():
-
         texts.append(
-            build_book_text(
+            build_semantic_text(
                 title=row.get("title"),
                 author=row.get("author"),
+                description=row.get("description"),
                 subjects=parse_subjects(
                     row.get("subjects")
                 ),
-                description=row.get("description"),
             )
         )
 
@@ -187,7 +186,6 @@ def choose_k(
     rows = []
 
     for k in range(min_k, upper_k + 1):
-
         model = KMeans(
             n_clusters=k,
             random_state=random_state,
@@ -440,7 +438,6 @@ def run_model_b(
         kfold.split(positive_indices),
         start=1,
     ):
-
         training_indices = positive_indices[
             train_positions
         ]
@@ -684,7 +681,6 @@ def make_reader_visual(
     for cluster_id in range(
         selected_k
     ):
-
         mask = (
             labels == cluster_id
         )
@@ -751,18 +747,12 @@ def make_reader_visual(
 # ---------------------------------------------------------------------------
 # MODEL A VS MODEL B COMPARISON
 # ---------------------------------------------------------------------------
+
 def make_model_comparison(output_dir: Path) -> None:
     """
     Compare Model A and Model B summary results.
 
-    Model summary CSVs are written with pandas MultiIndex columns,
-    such as:
-
-        ("recall_at_10", "mean")
-        ("recall_at_10", "std")
-
-    This function explicitly reads both header rows so those
-    columns are reconstructed correctly.
+    Model summary CSVs are written with pandas MultiIndex columns.
     """
 
     rows = []
@@ -804,9 +794,6 @@ def make_model_comparison(output_dir: Path) -> None:
             )
             continue
 
-        # IMPORTANT:
-        # Both summary files have two header rows because the
-        # aggregation creates MultiIndex columns.
         a = pd.read_csv(
             model_a_path,
             header=[0, 1],
@@ -821,12 +808,8 @@ def make_model_comparison(output_dir: Path) -> None:
             frame: pd.DataFrame,
             metric: str,
         ) -> float:
-            """
-            Safely retrieve the mean value for a metric from
-            a summary DataFrame with MultiIndex columns.
-            """
+            """Safely retrieve mean metric."""
 
-            # Expected MultiIndex column.
             column = (
                 metric,
                 "mean",
@@ -837,8 +820,6 @@ def make_model_comparison(output_dir: Path) -> None:
                     frame[column].iloc[0]
                 )
 
-            # Defensive fallback if the CSV was written with
-            # flattened column names.
             flattened = (
                 f"{metric}_mean"
             )
@@ -925,176 +906,75 @@ def make_model_comparison(output_dir: Path) -> None:
         )
     )
 
-    # ---------------------------------------------------------------
-    # Recall@10 comparison
-    # ---------------------------------------------------------------
-
     x = np.arange(
         len(comparison)
     )
 
     width = 0.36
 
-    fig, ax = plt.subplots(
-        figsize=(9, 5.5)
-    )
+    for metric in [
+        "recall_at_10",
+        "recall_at_25",
+        "recall_at_50",
+    ]:
+        fig, ax = plt.subplots(
+            figsize=(9, 5.5)
+        )
 
-    ax.bar(
-        x - width / 2,
-        comparison[
-            "model_a_recall_at_10"
-        ],
-        width,
-        label="Model A — single centroid",
-    )
+        ax.bar(
+            x - width / 2,
+            comparison[
+                f"model_a_{metric}"
+            ],
+            width,
+            label="Model A — single centroid",
+        )
 
-    ax.bar(
-        x + width / 2,
-        comparison[
-            "model_b_recall_at_10"
-        ],
-        width,
-        label="Model B — multi-interest",
-    )
+        ax.bar(
+            x + width / 2,
+            comparison[
+                f"model_b_{metric}"
+            ],
+            width,
+            label="Model B — multi-interest",
+        )
 
-    ax.set_xticks(x)
+        ax.set_xticks(x)
 
-    ax.set_xticklabels(
-        comparison["reader"].str.title()
-    )
+        ax.set_xticklabels(
+            comparison["reader"].str.title()
+        )
 
-    ax.set_ylabel(
-        "Recall@10"
-    )
+        ax.set_ylabel(
+            metric.replace("_", " ").title()
+        )
 
-    ax.set_title(
-        "Model A vs Model B — Recall@10"
-    )
+        ax.set_title(
+            f"Model A vs Model B — "
+            f"{metric.replace('_', ' ').title()}"
+        )
 
-    ax.legend()
+        ax.legend()
 
-    fig.tight_layout()
+        fig.tight_layout()
 
-    fig.savefig(
-        output_dir
-        / "model_a_vs_model_b_recall_at_10.png",
-        dpi=180,
-    )
+        fig.savefig(
+            output_dir
+            / f"model_a_vs_model_b_{metric}.png",
+            dpi=180,
+        )
 
-    plt.close(fig)
-
-    # ---------------------------------------------------------------
-    # Recall@25 comparison
-    # ---------------------------------------------------------------
-
-    fig, ax = plt.subplots(
-        figsize=(9, 5.5)
-    )
-
-    ax.bar(
-        x - width / 2,
-        comparison[
-            "model_a_recall_at_25"
-        ],
-        width,
-        label="Model A — single centroid",
-    )
-
-    ax.bar(
-        x + width / 2,
-        comparison[
-            "model_b_recall_at_25"
-        ],
-        width,
-        label="Model B — multi-interest",
-    )
-
-    ax.set_xticks(x)
-
-    ax.set_xticklabels(
-        comparison["reader"].str.title()
-    )
-
-    ax.set_ylabel(
-        "Recall@25"
-    )
-
-    ax.set_title(
-        "Model A vs Model B — Recall@25"
-    )
-
-    ax.legend()
-
-    fig.tight_layout()
-
-    fig.savefig(
-        output_dir
-        / "model_a_vs_model_b_recall_at_25.png",
-        dpi=180,
-    )
-
-    plt.close(fig)
-
-    # ---------------------------------------------------------------
-    # Recall@50 comparison
-    # ---------------------------------------------------------------
-
-    fig, ax = plt.subplots(
-        figsize=(9, 5.5)
-    )
-
-    ax.bar(
-        x - width / 2,
-        comparison[
-            "model_a_recall_at_50"
-        ],
-        width,
-        label="Model A — single centroid",
-    )
-
-    ax.bar(
-        x + width / 2,
-        comparison[
-            "model_b_recall_at_50"
-        ],
-        width,
-        label="Model B — multi-interest",
-    )
-
-    ax.set_xticks(x)
-
-    ax.set_xticklabels(
-        comparison["reader"].str.title()
-    )
-
-    ax.set_ylabel(
-        "Recall@50"
-    )
-
-    ax.set_title(
-        "Model A vs Model B — Recall@50"
-    )
-
-    ax.legend()
-
-    fig.tight_layout()
-
-    fig.savefig(
-        output_dir
-        / "model_a_vs_model_b_recall_at_50.png",
-        dpi=180,
-    )
-
-    plt.close(fig)
+        plt.close(fig)
 
     print()
     print(
-        f"Comparison saved to:"
+        "Comparison saved to:"
     )
     print(
         comparison_path
     )
-    
+
+
 def main() -> None:
 
     parser = argparse.ArgumentParser(
@@ -1211,19 +1091,11 @@ def main() -> None:
             summary
         )
 
-        # -----------------------------------------------------------
-        # Save fold-level results
-        # -----------------------------------------------------------
-
         fold_results.to_csv(
             output_dir
             / f"{reader}_model_b_folds.csv",
             index=False,
         )
-
-        # -----------------------------------------------------------
-        # Save K-selection results
-        # -----------------------------------------------------------
 
         k_selection.to_csv(
             output_dir
@@ -1231,19 +1103,11 @@ def main() -> None:
             index=False,
         )
 
-        # -----------------------------------------------------------
-        # Save summary
-        # -----------------------------------------------------------
-
         summary.to_csv(
             output_dir
             / f"{reader}_model_b_summary.csv",
             index=False,
         )
-
-        # -----------------------------------------------------------
-        # Visualization
-        # -----------------------------------------------------------
 
         selected_k = make_reader_visual(
             reader,
@@ -1259,10 +1123,6 @@ def main() -> None:
             f"descriptive multi-interest "
             f"k: {selected_k}"
         )
-
-    # ----------------------------------------------------------------
-    # COMBINED SUMMARY
-    # ----------------------------------------------------------------
 
     if all_summaries:
 
@@ -1288,10 +1148,6 @@ def main() -> None:
                 index=False
             )
         )
-
-    # ----------------------------------------------------------------
-    # MODEL A VS MODEL B
-    # ----------------------------------------------------------------
 
     make_model_comparison(
         output_dir

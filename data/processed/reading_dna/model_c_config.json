@@ -1,22 +1,33 @@
 {
   "model": "Model C \u2014 Multi-Interest + Multi-Label Reading DNA",
-  "embedding_model": "all-MiniLM-L6-v2",
-  "cluster_algorithm": "KMeans",
-  "cluster_count": 6,
-  "cluster_tuning_min_k": 6,
-  "cluster_tuning_max_k": 18,
-  "cluster_selection": {
-    "minimum_stability_ari": 0.7,
-    "minimum_cluster_fraction": 0.01,
-    "primary_metric": "silhouette_mean",
-    "tie_break": "lower_k"
-  },
-  "attribute_source": "Open Library subjects",
+  "neighborhood_method": "HDBSCAN density-based semantic neighborhoods",
+  "neighborhood_assignments": "data\\processed\\canonical\\semantic_neighborhood_assignments.csv",
+  "neighborhood_tuning": "data\\processed\\canonical\\semantic_neighborhood_tuning.csv",
+  "semantic_corpus": "data\\processed\\canonical\\semantic_books.csv",
+  "embedding_artifact": "data\\processed\\canonical\\semantic_embeddings.npy",
+  "embedding_metadata": "data\\processed\\canonical\\semantic_embeddings_metadata.csv",
+  "embedding_dimensions": 384,
+  "reader_evidence_source": "aggregated reader/book evidence",
+  "reader_evidence_artifact": "data\\processed\\canonical\\reader_book_evidence.csv",
+  "raw_reader_evidence_source": "canonical reader_evidence.csv",
+  "work_identity_source": "canonical_work_mapping",
+  "attribute_source": "curated Open Library subjects from semantic_books",
   "evidence_streams": [
     "preference",
     "exposure",
     "intent"
   ],
-  "weighting": null,
-  "random_state": 42
+  "neighborhood_solution": {
+    "book_count": 3321,
+    "neighborhood_count": 2,
+    "assigned_books": 2565,
+    "noise_books": 756,
+    "assigned_pct": 0.7723577235772358,
+    "noise_pct": 0.22764227642276424,
+    "min_neighborhood_size": 8,
+    "median_neighborhood_size": 1282.5,
+    "max_neighborhood_size": 2557,
+    "mean_coherence": 0.6626294851303101,
+    "median_coherence": 0.6626294851303101
+  }
 }

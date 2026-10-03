@@ -1,91 +1,111 @@
-from pathlib import Path
+from __future__ import annotations
+
 import sys
+from pathlib import Path
 
+import numpy as np
+import pandas as pd
 
-# ---------------------------------------------------------------------------
-# Project setup
-# ---------------------------------------------------------------------------
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-
-# ---------------------------------------------------------------------------
-# Project imports
-# ---------------------------------------------------------------------------
-
-from src.analytics.semantic_neighborhoods import (
-    DEFAULT_K,
-    find_nearest_neighbors,
-    load_embedding_artifacts,
-    summarize_neighborhoods,
+sys.path.insert(
+    0,
+    str(PROJECT_ROOT),
 )
 
 
-# ---------------------------------------------------------------------------
-# Paths
-# ---------------------------------------------------------------------------
+from src.analytics.semantic_neighborhoods import (
+    NeighborhoodConfig,
+    add_book_identity_to_neighbors,
+    build_neighborhood_assignments,
+    calculate_parameter_stability,
+    discover_semantic_neighborhoods,
+    find_nearest_neighbors,
+    summarize_neighborhood_solution,
+)
 
-EMBEDDINGS_PATH = (
+
+CANONICAL_DIR = (
     PROJECT_ROOT
     / "data"
     / "processed"
     / "canonical"
+)
+
+EMBEDDINGS_PATH = (
+    CANONICAL_DIR
     / "semantic_embeddings.npy"
 )
 
 METADATA_PATH = (
-    PROJECT_ROOT
-    / "data"
-    / "processed"
-    / "canonical"
+    CANONICAL_DIR
     / "semantic_embeddings_metadata.csv"
 )
 
 NEIGHBORHOODS_PATH = (
-    PROJECT_ROOT
-    / "data"
-    / "processed"
-    / "canonical"
+    CANONICAL_DIR
     / "semantic_neighborhoods.csv"
 )
 
-SUMMARY_PATH = (
-    PROJECT_ROOT
-    / "data"
-    / "processed"
-    / "canonical"
+NEIGHBOR_SUMMARY_PATH = (
+    CANONICAL_DIR
     / "semantic_neighborhood_summary.csv"
 )
 
+ASSIGNMENTS_PATH = (
+    CANONICAL_DIR
+    / "semantic_neighborhood_assignments.csv"
+)
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
+TUNING_PATH = (
+    CANONICAL_DIR
+    / "semantic_neighborhood_tuning.csv"
+)
 
-K = DEFAULT_K
 
+K_NEIGHBORS = 20
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
+MIN_CLUSTER_SIZE = 8
+
+MIN_SAMPLES = 3
+
+GRANULARITY_VALUES = (
+    5,
+    8,
+    12,
+    16,
+)
+
 
 def main() -> None:
-    print("=" * 70)
-    print("Semantic Neighborhood Analysis")
-    print("=" * 70)
 
-    print("\nLoading embedding artifacts...")
+    print(
+        "Loading semantic embedding artifacts..."
+    )
 
-    embeddings, metadata = load_embedding_artifacts(
-        embedding_path=EMBEDDINGS_PATH,
-        metadata_path=METADATA_PATH,
+    embeddings = np.load(
+        EMBEDDINGS_PATH
+    )
+
+    metadata = pd.read_csv(
+        METADATA_PATH
+    )
+
+    if len(embeddings) != len(metadata):
+        raise ValueError(
+            "Embedding and metadata row counts "
+            "do not match."
+        )
+
+    metadata = (
+        metadata
+        .sort_values("embedding_row")
+        .reset_index(drop=True)
     )
 
     print(
-        f"Loaded {len(metadata):,} books."
+        f"Books: {len(embeddings):,}"
     )
 
     print(
@@ -93,132 +113,179 @@ def main() -> None:
         f"{embeddings.shape[1]}"
     )
 
+    # ---------------------------------------------------------------
+    # Existing local semantic neighbor graph
+    # ---------------------------------------------------------------
+
+    print()
     print(
-        f"\nFinding top {K} semantic neighbors "
-        f"for every book..."
+        "Building top-20 semantic neighbor graph..."
     )
 
-    neighborhoods = find_nearest_neighbors(
-        embeddings=embeddings,
-        metadata=metadata,
-        k=K,
+    neighbors = find_nearest_neighbors(
+        embeddings,
+        k=K_NEIGHBORS,
     )
 
-    print(
-        f"Generated {len(neighborhoods):,} "
-        f"book-neighbor relationships."
+    neighbors = add_book_identity_to_neighbors(
+        neighbors,
+        metadata,
     )
 
-    # -----------------------------------------------------------------------
-    # Save detailed neighborhoods
-    # -----------------------------------------------------------------------
-
-    NEIGHBORHOODS_PATH.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    neighborhoods.to_csv(
+    neighbors.to_csv(
         NEIGHBORHOODS_PATH,
         index=False,
     )
 
-    print(
-        f"\nSaved neighborhoods:"
-        f"\n  {NEIGHBORHOODS_PATH}"
-    )
-
-    # -----------------------------------------------------------------------
-    # Summarize neighborhood structure
-    # -----------------------------------------------------------------------
-
-    summary = summarize_neighborhoods(
-        neighborhoods
+    summary = (
+        neighbors.groupby(
+            "query_book_id"
+        )
+        .agg(
+            mean_similarity=(
+                "similarity",
+                "mean",
+            ),
+            median_similarity=(
+                "similarity",
+                "median",
+            ),
+            min_similarity=(
+                "similarity",
+                "min",
+            ),
+            max_similarity=(
+                "similarity",
+                "max",
+            ),
+        )
+        .reset_index()
     )
 
     summary.to_csv(
-        SUMMARY_PATH,
+        NEIGHBOR_SUMMARY_PATH,
         index=False,
     )
 
     print(
-        f"\nSaved neighborhood summary:"
-        f"\n  {SUMMARY_PATH}"
-    )
-
-    # -----------------------------------------------------------------------
-    # Overall diagnostics
-    # -----------------------------------------------------------------------
-
-    print("\nNeighborhood diagnostics:")
-
-    print(
-        f"  Books: "
-        f"{summary['canonical_book_id'].nunique():,}"
+        f"Generated "
+        f"{len(neighbors):,} "
+        "book-neighbor relationships."
     )
 
     print(
-        f"  Neighbors per book: "
-        f"{summary['neighbor_count'].median():.0f}"
+        f"Mean similarity: "
+        f"{neighbors['similarity'].mean():.4f}"
     )
 
     print(
-        f"  Mean similarity: "
-        f"{summary['mean_similarity'].mean():.4f}"
+        f"Median similarity: "
+        f"{neighbors['similarity'].median():.4f}"
     )
 
+    # ---------------------------------------------------------------
+    # Density-based semantic neighborhoods
+    # ---------------------------------------------------------------
+
+    print()
     print(
-        f"  Median book mean similarity: "
-        f"{summary['mean_similarity'].median():.4f}"
+        "Discovering density-based semantic "
+        "neighborhoods..."
     )
 
+    labels, clusterer = (
+        discover_semantic_neighborhoods(
+            embeddings,
+            NeighborhoodConfig(
+                min_cluster_size=MIN_CLUSTER_SIZE,
+                min_samples=MIN_SAMPLES,
+            ),
+        )
+    )
+
+    probabilities = getattr(
+        clusterer,
+        "probabilities_",
+        None,
+    )
+
+    assignments = (
+        build_neighborhood_assignments(
+            metadata,
+            labels,
+            probabilities,
+        )
+    )
+
+    assignments.to_csv(
+        ASSIGNMENTS_PATH,
+        index=False,
+    )
+
+    solution = (
+        summarize_neighborhood_solution(
+            embeddings,
+            labels,
+        )
+    )
+
+    print()
     print(
-        f"  Minimum similarity observed: "
-        f"{summary['min_similarity'].min():.4f}"
+        "Density-based neighborhood summary:"
     )
 
-    print(
-        f"  Maximum similarity observed: "
-        f"{summary['max_similarity'].max():.4f}"
-    )
-
-    # -----------------------------------------------------------------------
-    # Example neighborhoods
-    # -----------------------------------------------------------------------
-
-    print("\nExample semantic neighborhoods:")
-
-    example_books = (
-        metadata
-        .sort_values("title")
-        .head(5)
-    )
-
-    for _, book in example_books.iterrows():
-
-        book_id = book["canonical_book_id"]
-
-        book_neighbors = neighborhoods[
-            neighborhoods["canonical_book_id"]
-            == book_id
-        ].sort_values("neighbor_rank")
-
+    for key, value in solution.items():
         print(
-            f"\n{book['title']} "
-            f"by {book['author']}"
+            f"  {key}: {value}"
         )
 
-        for _, neighbor in book_neighbors.head(5).iterrows():
-            print(
-                f"  {neighbor['neighbor_rank']:>2}. "
-                f"{neighbor['neighbor_title']} "
-                f"— "
-                f"{neighbor['cosine_similarity']:.3f}"
-            )
+    # ---------------------------------------------------------------
+    # Granularity stability
+    # ---------------------------------------------------------------
 
-    print("\n" + "=" * 70)
-    print("Semantic neighborhood analysis complete.")
-    print("=" * 70)
+    print()
+    print(
+        "Evaluating neighborhood granularity..."
+    )
+
+    tuning = calculate_parameter_stability(
+        embeddings,
+        min_cluster_sizes=GRANULARITY_VALUES,
+        min_samples=MIN_SAMPLES,
+    )
+
+    tuning.to_csv(
+        TUNING_PATH,
+        index=False,
+    )
+
+    print()
+    print(
+        tuning.to_string(
+            index=False
+        )
+    )
+
+    print()
+    print(
+        "Saved semantic neighborhood artifacts:"
+    )
+
+    print(
+        f"  {NEIGHBORHOODS_PATH}"
+    )
+
+    print(
+        f"  {NEIGHBOR_SUMMARY_PATH}"
+    )
+
+    print(
+        f"  {ASSIGNMENTS_PATH}"
+    )
+
+    print(
+        f"  {TUNING_PATH}"
+    )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,4 @@
+neighborhood_id,book_count,top_attributes,is_noise
+-1,756,"['new york times bestseller', ""children's fiction"", 'juvenile fiction', 'american literature', 'fantasy', 'romans nouvelles', 'science fiction', 'fantasy fiction', 'new york times reviewed', 'fiction fantasy general']",True
+0,2557,"['new york times bestseller', 'american literature', 'fiction romance general', 'romance', 'juvenile fiction', ""children's fiction"", 'fiction romance contemporary', 'fantasy', 'man-woman relationships', 'fiction women']",False
+1,8,"['fiction mystery and detective general', 'anecdotes', 'archaeologists fiction', 'california fiction', ""children's fiction"", 'colorado history', 'description and travel', 'geology', 'geology united states', 'gray wolf']",False

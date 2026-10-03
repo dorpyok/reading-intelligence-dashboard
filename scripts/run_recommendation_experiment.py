@@ -3,19 +3,17 @@ import ast
 import sys
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT))
-
 import numpy as np
 import pandas as pd
 from sentence_transformers import SentenceTransformer
 from sklearn.model_selection import KFold
 from sklearn.metrics.pairwise import cosine_similarity
 
-from src.analytics.metadata_normalization import build_book_text
-
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.analytics.metadata_normalization import build_semantic_text
+
 
 DEFAULT_MODEL_NAME = "all-MiniLM-L6-v2"
 DEFAULT_N_SPLITS = 5
@@ -89,19 +87,18 @@ def load_reader_data(
 def prepare_book_text(
     dataframe: pd.DataFrame,
 ) -> list[str]:
-    """Build the semantic text representation used by the project."""
+    """Build the current canonical semantic text representation."""
 
     texts = []
 
     for _, row in dataframe.iterrows():
-
         subjects = parse_subjects(row.get("subjects"))
 
-        text = build_book_text(
+        text = build_semantic_text(
             title=row.get("title"),
             author=row.get("author"),
-            subjects=subjects,
             description=row.get("description"),
+            subjects=subjects,
         )
 
         texts.append(text)
@@ -152,7 +149,6 @@ def get_positive_indices(
         positive_mask.to_numpy()
     )
 
-
 def rank_candidates(
     preference_vector: np.ndarray,
     embeddings: np.ndarray,
@@ -163,7 +159,7 @@ def rank_candidates(
     reader's preference vector.
 
     Books used to construct the preference vector are
-    excluded from the recommendation ranking.
+    excluded entirely from the recommendation ranking.
     """
 
     scores = cosine_similarity(
@@ -172,7 +168,30 @@ def rank_candidates(
     ).ravel()
 
     if excluded_indices:
-        scores[list(excluded_indices)] = -np.inf
+        candidate_mask = np.ones(
+            len(scores),
+            dtype=bool,
+        )
+
+        candidate_mask[
+            list(excluded_indices)
+        ] = False
+
+        candidate_indices = np.flatnonzero(
+            candidate_mask
+        )
+
+        candidate_scores = scores[
+            candidate_indices
+        ]
+
+        ranking_order = np.argsort(
+            candidate_scores
+        )[::-1]
+
+        return candidate_indices[
+            ranking_order
+        ]
 
     return np.argsort(scores)[::-1]
 
@@ -243,7 +262,6 @@ def calculate_rank_percentiles(
     percentiles = []
 
     for book_index in held_out_indices:
-
         rank = rank_lookup[int(book_index)]
 
         percentile = 1 - (
@@ -288,17 +306,21 @@ def run_model_a(
     print("=" * 70)
     print(f"MODEL A — {reader_name}")
     print("=" * 70)
+
     print(
         f"Books: {len(dataframe):,}"
     )
+
     print(
         f"Positive books (rating >= 4): "
         f"{len(positive_indices):,}"
     )
+
     print(
         f"Embedding dimensions: "
         f"{embeddings.shape[1]}"
     )
+
     print(
         f"Cross-validation folds: {n_splits}"
     )
@@ -318,7 +340,6 @@ def run_model_a(
         kfold.split(positive_indices),
         start=1,
     ):
-
         training_positive_indices = (
             positive_indices[train_positions]
         )
@@ -331,14 +352,23 @@ def run_model_a(
             training_positive_indices
         ]
 
-        preference_vector = np.mean(training_positive_embeddings, axis=0)
+        preference_vector = np.mean(
+            training_positive_embeddings,
+            axis=0,
+        )
 
-        norm = np.linalg.norm(preference_vector)
+        norm = np.linalg.norm(
+            preference_vector
+        )
 
         if norm == 0:
-            raise ValueError("Preference vector has zero magnitude.")
+            raise ValueError(
+                "Preference vector has zero magnitude."
+            )
 
-        preference_vector = preference_vector / norm
+        preference_vector = (
+            preference_vector / norm
+        )
 
         excluded_indices = set(
             training_positive_indices.tolist()
@@ -463,7 +493,6 @@ def print_summary(
     print("=" * 70)
 
     for _, row in summary.iterrows():
-
         reader = row["reader"]
 
         print()

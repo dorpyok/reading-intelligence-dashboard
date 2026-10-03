@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from scripts.run_recommendation_experiment import (
     calculate_recall_at_k,
@@ -76,4 +77,4 @@ def test_rank_percentiles():
     )
 
     assert percentiles[0] == 1.0
-    assert percentiles[1] == 0.2
+    assert percentiles[1] == pytest.approx(0.2)

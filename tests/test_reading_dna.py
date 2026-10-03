@@ -1,24 +1,20 @@
 import sys
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.analytics.reading_dna import (
-    ClusterConfig,
     add_book_attributes,
     aggregate_reader_attributes,
-    assign_clusters,
     build_attribute_combinations,
-    build_cluster_descriptions,
-    deduplicate_books,
+    build_neighborhood_descriptions,
+    build_reader_neighborhood_profile,
     extract_book_attributes,
     normalize_attribute,
-    select_final_k,
-    tune_cluster_count,
+    score_reader_attribute_strength,
 )
 
 
@@ -59,109 +55,6 @@ def test_add_book_attributes():
     result = add_book_attributes(df)
 
     assert result["attribute_count"].tolist() == [2, 1]
-
-
-def test_deduplicate_books_by_source_id():
-    df = pd.DataFrame(
-        [
-            {"source_book_id": "1", "title": "A", "author": "X"},
-            {"source_book_id": "1", "title": "A", "author": "X"},
-            {"source_book_id": "2", "title": "B", "author": "Y"},
-        ]
-    )
-
-    result = deduplicate_books(df)
-
-    assert len(result) == 2
-
-
-def test_select_final_k_respects_guardrails():
-    tuning = pd.DataFrame(
-        [
-            {
-                "k": 6,
-                "silhouette_mean": 0.30,
-                "stability_ari_mean": 0.90,
-                "min_cluster_pct": 0.03,
-            },
-            {
-                "k": 8,
-                "silhouette_mean": 0.35,
-                "stability_ari_mean": 0.50,
-                "min_cluster_pct": 0.02,
-            },
-            {
-                "k": 10,
-                "silhouette_mean": 0.31,
-                "stability_ari_mean": 0.85,
-                "min_cluster_pct": 0.02,
-            },
-        ]
-    )
-
-    assert select_final_k(tuning) == 10
-
-
-def test_select_final_k_falls_back_when_no_candidate_is_eligible():
-    tuning = pd.DataFrame(
-        [
-            {
-                "k": 6,
-                "silhouette_mean": 0.30,
-                "stability_ari_mean": 0.50,
-                "min_cluster_pct": 0.005,
-            },
-            {
-                "k": 8,
-                "silhouette_mean": 0.35,
-                "stability_ari_mean": 0.40,
-                "min_cluster_pct": 0.004,
-            },
-        ]
-    )
-
-    assert select_final_k(tuning) == 8
-
-
-def test_assign_clusters_returns_requested_count():
-    rng = np.random.default_rng(42)
-    embeddings = rng.normal(size=(60, 8))
-    embeddings /= np.linalg.norm(
-        embeddings,
-        axis=1,
-        keepdims=True,
-    )
-
-    labels, centroids, model = assign_clusters(
-        embeddings,
-        k=4,
-    )
-
-    assert len(labels) == 60
-    assert centroids.shape == (4, 8)
-    assert len(np.unique(labels)) == 4
-    assert model.n_clusters == 4
-
-
-def test_cluster_descriptions_use_attributes():
-    df = pd.DataFrame(
-        [
-            {"attributes": ["horror", "feminist fiction"]},
-            {"attributes": ["horror", "speculative fiction"]},
-            {"attributes": ["romance"]},
-        ]
-    )
-
-    result = build_cluster_descriptions(
-        df,
-        np.array([0, 0, 1]),
-        top_terms=2,
-    )
-
-    row = result[result["cluster_id"] == 0].iloc[0]
-
-    assert row["book_count"] == 2
-    assert "horror" in row["top_attributes"]
 
 
 def test_reader_attribute_aggregation_keeps_evidence_streams_separate():
@@ -211,26 +104,174 @@ def test_attribute_combinations_are_pairwise():
     result = build_attribute_combinations(df, "you")
 
     assert len(result) == 3
-    assert set(result["attribute_1"]) == {
-        "feminism",
-        "feminism",
-        "horror",
+
+    pairs = {
+        tuple(sorted([row.attribute_1, row.attribute_2]))
+        for row in result.itertuples()
+    }
+
+    assert pairs == {
+        ("feminism", "horror"),
+        ("feminism", "speculative"),
+        ("horror", "speculative"),
     }
 
 
-def test_tune_cluster_count_returns_requested_range():
-    rng = np.random.default_rng(42)
-    embeddings = rng.normal(size=(80, 6))
-    embeddings /= np.linalg.norm(
-        embeddings,
-        axis=1,
-        keepdims=True,
+def test_neighborhood_descriptions_include_noise():
+    df = pd.DataFrame(
+        [
+            {
+                "neighborhood_id": 0,
+                "attributes": ["horror", "feminist fiction"],
+            },
+            {
+                "neighborhood_id": 0,
+                "attributes": ["horror", "speculative fiction"],
+            },
+            {
+                "neighborhood_id": -1,
+                "attributes": ["romance"],
+            },
+        ]
     )
 
-    result = tune_cluster_count(
-        embeddings,
-        ClusterConfig(min_k=2, max_k=4),
+    result = build_neighborhood_descriptions(
+        df,
+        top_terms=2,
     )
 
-    assert result["k"].tolist() == [2, 3, 4]
-    assert result["stability_ari_mean"].notna().all()
+    assert set(result["neighborhood_id"]) == {0, -1}
+
+    community = result[result["neighborhood_id"] == 0].iloc[0]
+
+    assert community["book_count"] == 2
+    assert "horror" in community["top_attributes"]
+    assert bool(community["is_noise"]) is False
+
+    noise = result[result["neighborhood_id"] == -1].iloc[0]
+
+    assert noise["book_count"] == 1
+    assert bool(noise["is_noise"]) is True
+
+
+def test_reader_neighborhood_profile_preserves_evidence():
+    df = pd.DataFrame(
+        [
+            {
+                "neighborhood_id": 0,
+                "attributes": ["horror"],
+                "user_rating": 5,
+                "reading_status": "read",
+            },
+            {
+                "neighborhood_id": 0,
+                "attributes": ["horror"],
+                "user_rating": 2,
+                "reading_status": "read",
+            },
+            {
+                "neighborhood_id": 1,
+                "attributes": ["romance"],
+                "user_rating": 0,
+                "reading_status": "to_read",
+            },
+        ]
+    )
+
+    result = build_reader_neighborhood_profile(
+        df,
+        "you",
+    )
+
+    neighborhood_zero = result[
+        result["neighborhood_id"] == 0
+    ].iloc[0]
+
+    assert neighborhood_zero["book_count"] == 2
+    assert neighborhood_zero["positive_count"] == 1
+    assert neighborhood_zero["negative_count"] == 1
+    assert neighborhood_zero["observed_count"] == 2
+    assert neighborhood_zero["preference_rate"] == 0.5
+
+    neighborhood_one = result[
+        result["neighborhood_id"] == 1
+    ].iloc[0]
+
+    assert neighborhood_one["book_count"] == 1
+    assert neighborhood_one["positive_count"] == 0
+    assert neighborhood_one["negative_count"] == 0
+    assert neighborhood_one["observed_count"] == 0
+    assert neighborhood_one["intent_count"] == 1
+
+
+def test_score_reader_attribute_strength_marks_sparse_evidence():
+    df = pd.DataFrame(
+        [
+            {
+                "reader": "you",
+                "attribute": "horror",
+                "book_count": 2,
+                "positive_count": 1,
+                "negative_count": 0,
+                "conflicted_count": 0,
+                "observed_count": 2,
+                "intent_count": 0,
+                "preference_rate": 1.0,
+                "exposure_rate": 1.0,
+                "intent_rate": 0.0,
+            },
+            {
+                "reader": "you",
+                "attribute": "romance",
+                "book_count": 4,
+                "positive_count": 3,
+                "negative_count": 0,
+                "conflicted_count": 0,
+                "observed_count": 4,
+                "intent_count": 0,
+                "preference_rate": 1.0,
+                "exposure_rate": 1.0,
+                "intent_rate": 0.0,
+            },
+        ]
+    )
+
+    result = score_reader_attribute_strength(
+        df,
+        min_book_count=3,
+    )
+
+    horror = result[
+        result["attribute"] == "horror"
+    ].iloc[0]
+
+    romance = result[
+        result["attribute"] == "romance"
+    ].iloc[0]
+
+    assert horror["evidence_level"] == "sparse"
+    assert romance["evidence_level"] == "preference_evidence"
+
+
+def test_score_reader_attribute_strength_marks_conflicted_evidence():
+    df = pd.DataFrame(
+        [
+            {
+                "reader": "you",
+                "attribute": "fantasy",
+                "book_count": 5,
+                "positive_count": 2,
+                "negative_count": 1,
+                "conflicted_count": 1,
+                "observed_count": 5,
+                "intent_count": 0,
+                "preference_rate": 2 / 3,
+                "exposure_rate": 1.0,
+                "intent_rate": 0.0,
+            },
+        ]
+    )
+
+    result = score_reader_attribute_strength(df)
+
+    assert result.iloc[0]["evidence_level"] == "conflicted"

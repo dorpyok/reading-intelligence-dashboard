@@ -1,4 +1,4 @@
-reader,books,books_with_attributes,unique_attributes,clusters,clustered_books,positive_books,intent_books
-you,359,252,1900,6,359,99,0
-sarah,1331,792,4748,6,1331,281,0
-shannon,1866,869,3530,6,1866,507,0
+reader,reader_id,reader_book_relationships,canonical_works,positive_books,negative_books,exposure_books,tbr_books,currently_reading,dnf_books,unknown_evidence,unique_attributes,neighborhoods_exposed,noise_books
+you,goodreads_you,358,358,107,4,219,213,6,0,23,1776,2,1
+sarah,goodreads_sarah,1305,1297,376,26,789,786,3,0,121,4494,3,1
+shannon,goodreads_shannon,1829,1822,702,29,1094,1085,9,2,11,3173,3,1
