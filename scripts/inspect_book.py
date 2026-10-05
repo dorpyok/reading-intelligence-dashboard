@@ -2,34 +2,43 @@
 Inspect the semantic and network intelligence for one book.
 
 This is a read-only diagnostic and content-development tool.
+
 It does not modify or regenerate any ML artifacts.
 
 Current intelligence sources:
     - Semantic book metadata
     - Frozen semantic similarity graph
-    - Leiden community assignments
+    - Final Leiden community assignments
     - Leiden community summaries
 
 Examples
 --------
-Standard report:
+Inspect a book:
 
     python scripts/inspect_book.py "House of Earth and Blood"
+
+Show more neighbors:
+
+    python scripts/inspect_book.py "House of Earth and Blood" --top 10
+
+Show more books from the community:
+
+    python scripts/inspect_book.py "House of Earth and Blood" \
+        --community-examples 30
+
+Show every book in the book's community:
+
+    python scripts/inspect_book.py "House of Earth and Blood" \
+        --all-community-books
+
+Inspect a community directly:
+
+    python scripts/inspect_book.py --community 11
 
 Instagram-oriented report:
 
     python scripts/inspect_book.py "House of Earth and Blood" \
         --format instagram
-
-Inspect a specific Leiden resolution:
-
-    python scripts/inspect_book.py "House of Earth and Blood" \
-        --resolution 3.0
-
-Show more neighbors:
-
-    python scripts/inspect_book.py "House of Earth and Blood" \
-        --top 10
 
 JSON output:
 
@@ -99,8 +108,6 @@ DEFAULT_RESOLUTION = 3.0
 DEFAULT_TOP_N = 5
 DEFAULT_COMMUNITY_EXAMPLES = 10
 
-# Fuzzy matches are suggestions only.
-# They are NEVER automatically accepted.
 FUZZY_SUGGESTION_THRESHOLD = 0.65
 
 
@@ -127,11 +134,7 @@ def clean_display_text(value: object) -> str:
 
 
 def normalize_text(value: object) -> str:
-    """
-    Normalize text for matching.
-
-    Punctuation is removed and whitespace is normalized.
-    """
+    """Normalize text for matching."""
 
     text = clean_display_text(value).lower()
 
@@ -151,9 +154,7 @@ def normalize_text(value: object) -> str:
 
 
 def normalize_title(value: object) -> str:
-    """
-    Normalize a book title while preserving its meaningful words.
-    """
+    """Normalize a book title."""
 
     return normalize_text(value)
 
@@ -169,13 +170,10 @@ def strip_series_suffix(title: str) -> str:
 
     Red Rising (Red Rising, #1)
         -> Red Rising
-
-    This is intentionally conservative.
     """
 
     title = clean_display_text(title)
 
-    # Remove parenthetical suffixes containing common series indicators.
     stripped = re.sub(
         r"\s*\((?:[^)]*(?:#\s*\d+|book\s+\d+|volume\s+\d+|vol\.\s*\d+)[^)]*)\)\s*$",
         "",
@@ -183,7 +181,6 @@ def strip_series_suffix(title: str) -> str:
         flags=re.IGNORECASE,
     )
 
-    # Also handle bracketed volume indicators.
     stripped = re.sub(
         r"\s*\[(?:[^\]]*(?:#\s*\d+|book\s+\d+|volume\s+\d+|vol\.\s*\d+)[^\]]*)\]\s*$",
         "",
@@ -242,29 +239,14 @@ def truncate_text(
 
 
 def parse_subjects(value: object) -> list[str]:
-    """
-    Parse the cleaned subject field safely.
-
-    Handles:
-        - Python list representations
-        - JSON-like lists
-        - pipe-delimited strings
-        - semicolon-delimited strings
-        - comma-delimited strings
-        - single values
-    """
+    """Parse the cleaned subject field safely."""
 
     text = clean_display_text(value)
 
     if not text:
         return []
 
-    # Try Python literal parsing first because the project artifacts may
-    # contain strings such as:
-    #
-    # ['fantasy fiction', 'angels', 'murder']
     if text.startswith("[") and text.endswith("]"):
-
         try:
             parsed = ast.literal_eval(text)
 
@@ -320,7 +302,7 @@ def load_artifacts() -> tuple[
     pd.DataFrame,
     pd.DataFrame,
 ]:
-    """Load the existing book-intelligence artifacts."""
+    """Load and validate the current finalized artifacts."""
 
     paths = [
         SEMANTIC_NEIGHBORHOODS_PATH,
@@ -348,6 +330,53 @@ def load_artifacts() -> tuple[
         LEIDEN_SUMMARY_PATH
     )
 
+    # ------------------------------------------------------------------------
+    # Final Leiden assignments schema
+    # ------------------------------------------------------------------------
+
+    required_assignment_columns = {
+        "canonical_book_id",
+        "title",
+        "author",
+        "community_id",
+    }
+
+    missing_assignment_columns = (
+        required_assignment_columns
+        - set(assignments.columns)
+    )
+
+    if missing_assignment_columns:
+        raise ValueError(
+            "The final Leiden assignments artifact is missing "
+            f"required columns: {sorted(missing_assignment_columns)}"
+        )
+
+    # ------------------------------------------------------------------------
+    # Final Leiden community summary schema
+    # ------------------------------------------------------------------------
+
+    required_summary_columns = {
+        "community_id",
+        "book_count",
+        "internal_edge_count",
+        "mean_internal_similarity",
+        "median_internal_similarity",
+        "min_internal_similarity",
+        "max_internal_similarity",
+    }
+
+    missing_summary_columns = (
+        required_summary_columns
+        - set(community_summary.columns)
+    )
+
+    if missing_summary_columns:
+        raise ValueError(
+            "The final Leiden community summary artifact is missing "
+            f"required columns: {sorted(missing_summary_columns)}"
+        )
+
     return (
         neighborhoods,
         semantic_books,
@@ -365,20 +394,11 @@ def find_exact_title_match(
     query: str,
     semantic_books: pd.DataFrame,
 ) -> tuple[pd.Series | None, str | None]:
-    """
-    Find an exact or normalized title match.
-
-    Returns
-    -------
-    row, match_method
-    """
+    """Find an exact, normalized, or series-suffix title match."""
 
     query_clean = clean_display_text(query)
 
-    # ------------------------------------------------------------------------
     # Exact title
-    # ------------------------------------------------------------------------
-
     exact = semantic_books[
         semantic_books["title"]
         .map(clean_display_text)
@@ -391,10 +411,7 @@ def find_exact_title_match(
             "exact title",
         )
 
-    # ------------------------------------------------------------------------
     # Normalized title
-    # ------------------------------------------------------------------------
-
     query_normalized = normalize_title(
         query_clean
     )
@@ -413,18 +430,7 @@ def find_exact_title_match(
             "normalized title",
         )
 
-    # ------------------------------------------------------------------------
     # Series suffix removed
-    #
-    # This is specifically what makes:
-    #
-    # House of Earth and Blood
-    #
-    # safely match:
-    #
-    # House of Earth and Blood (Crescent City, #1)
-    # ------------------------------------------------------------------------
-
     query_base = title_without_series_suffix(
         query_clean
     )
@@ -438,9 +444,6 @@ def find_exact_title_match(
     ]
 
     if not series_match.empty:
-
-        # If multiple editions/series records share the base title,
-        # return the first deterministic match.
         return (
             series_match.iloc[0],
             "title with series suffix normalized",
@@ -454,12 +457,7 @@ def find_fuzzy_suggestions(
     semantic_books: pd.DataFrame,
     top_n: int = 5,
 ) -> pd.DataFrame:
-    """
-    Find possible fuzzy matches.
-
-    These are suggestions only.
-    They are never silently accepted.
-    """
+    """Find possible fuzzy title matches."""
 
     candidates = semantic_books[
         [
@@ -507,14 +505,7 @@ def find_book(
     str | None,
     pd.DataFrame,
 ]:
-    """
-    Find a book safely.
-
-    Exact/normalized/series-suffix matches are accepted.
-
-    Fuzzy matches are returned separately as suggestions and are
-    NEVER automatically substituted.
-    """
+    """Find a book safely."""
 
     book, method = find_exact_title_match(
         query,
@@ -611,32 +602,15 @@ def get_book_community(
     pd.Series | None,
     pd.Series | None,
 ]:
-    """Return a book's Leiden assignment and community summary."""
+    """
+    Return a book's final Leiden assignment and community summary.
 
-    resolution_assignments = assignments[
-        assignments["resolution"].round(6)
-        == round(resolution, 6)
-    ].copy()
+    The finalized assignments file contains one row per book.
+    It does not contain a resolution column.
+    """
 
-    if resolution_assignments.empty:
-
-        available = sorted(
-            assignments["resolution"]
-            .dropna()
-            .unique()
-            .tolist()
-        )
-
-        raise ValueError(
-            f"No Leiden assignments exist for resolution "
-            f"{resolution}.\n\n"
-            f"Available resolutions: {available}"
-        )
-
-    book_match = resolution_assignments[
-        resolution_assignments[
-            "canonical_book_id"
-        ]
+    book_match = assignments[
+        assignments["canonical_book_id"]
         == book_id
     ]
 
@@ -645,21 +619,13 @@ def get_book_community(
 
     assignment = book_match.iloc[0]
 
+    community_id = int(
+        assignment["community_id"]
+    )
+
     summary_match = community_summary[
-        (
-            community_summary[
-                "resolution"
-            ].round(6)
-            == round(resolution, 6)
-        )
-        & (
-            community_summary[
-                "community_id"
-            ]
-            == assignment[
-                "community_id"
-            ]
-        )
+        community_summary["community_id"]
+        == community_id
     ]
 
     if summary_match.empty:
@@ -674,48 +640,60 @@ def get_book_community(
 def get_community_books(
     book_id: str,
     assignments: pd.DataFrame,
-    resolution: float,
-    limit: int,
+    limit: int | None = None,
 ) -> pd.DataFrame:
-    """
-    Return other books in the same community.
+    """Return books belonging to the same final Leiden community."""
 
-    This is intentionally deterministic. A future version can replace
-    alphabetical examples with graph-centrality representatives.
-    """
-
-    resolution_assignments = assignments[
-        assignments["resolution"].round(6)
-        == round(resolution, 6)
-    ].copy()
-
-    target = resolution_assignments[
-        resolution_assignments[
-            "canonical_book_id"
-        ]
+    target = assignments[
+        assignments["canonical_book_id"]
         == book_id
     ]
 
     if target.empty:
         return pd.DataFrame()
 
-    community_id = target.iloc[0][
-        "community_id"
-    ]
+    community_id = int(
+        target.iloc[0]["community_id"]
+    )
 
-    community_books = resolution_assignments[
-        resolution_assignments[
-            "community_id"
-        ]
+    community_books = assignments[
+        assignments["community_id"]
         == community_id
     ].copy()
 
     community_books = community_books[
-        community_books[
-            "canonical_book_id"
-        ]
+        community_books["canonical_book_id"]
         != book_id
     ]
+
+    community_books = community_books.sort_values(
+        [
+            "title",
+            "author",
+        ],
+        na_position="last",
+    )
+
+    if limit is not None:
+        community_books = community_books.head(
+            limit
+        )
+
+    return community_books.reset_index(
+        drop=True
+    )
+
+
+def get_direct_community_books(
+    community_id: int,
+    assignments: pd.DataFrame,
+) -> pd.DataFrame:
+    """Return all books belonging to a specified community."""
+
+    community_books = assignments[
+        assignments["community_id"]
+        == community_id
+    ].copy()
 
     return (
         community_books
@@ -726,7 +704,7 @@ def get_community_books(
             ],
             na_position="last",
         )
-        .head(limit)
+        .reset_index(drop=True)
     )
 
 
@@ -744,6 +722,7 @@ def build_book_intelligence(
     resolution: float,
     top_n: int,
     community_examples: int,
+    all_community_books: bool,
 ) -> dict:
     """Build a structured intelligence record."""
 
@@ -752,12 +731,7 @@ def build_book_intelligence(
         semantic_books,
     )
 
-    # ------------------------------------------------------------------------
-    # Book not found
-    # ------------------------------------------------------------------------
-
     if book is None:
-
         return {
             "found": False,
             "query": query,
@@ -794,7 +768,7 @@ def build_book_intelligence(
         )
 
     # ------------------------------------------------------------------------
-    # Neighbors
+    # Semantic neighbors
     # ------------------------------------------------------------------------
 
     neighbors = get_neighbors(
@@ -808,7 +782,6 @@ def build_book_intelligence(
     for row in neighbors.itertuples(
         index=False
     ):
-
         neighbor_records.append(
             {
                 "book_id": row.neighbor_book_id,
@@ -825,7 +798,7 @@ def build_book_intelligence(
         )
 
     # ------------------------------------------------------------------------
-    # Community
+    # Leiden community
     # ------------------------------------------------------------------------
 
     assignment, community = get_book_community(
@@ -856,7 +829,12 @@ def build_book_intelligence(
                 {
                     "community_size": int(
                         community[
-                            "community_size"
+                            "book_count"
+                        ]
+                    ),
+                    "internal_edge_count": int(
+                        community[
+                            "internal_edge_count"
                         ]
                     ),
                     "mean_internal_similarity": float(
@@ -869,31 +847,43 @@ def build_book_intelligence(
                             "median_internal_similarity"
                         ]
                     ),
-                    "internal_edge_density": float(
+                    "min_internal_similarity": float(
                         community[
-                            "internal_edge_density"
+                            "min_internal_similarity"
+                        ]
+                    ),
+                    "max_internal_similarity": float(
+                        community[
+                            "max_internal_similarity"
                         ]
                     ),
                 }
             )
 
     # ------------------------------------------------------------------------
-    # Community examples
+    # Community books
     # ------------------------------------------------------------------------
 
-    community_books = get_community_books(
-        book_id,
-        assignments,
-        resolution,
-        community_examples,
-    )
+    if assignment is not None:
+
+        community_books = get_community_books(
+            book_id,
+            assignments,
+            limit=(
+                None
+                if all_community_books
+                else community_examples
+            ),
+        )
+
+    else:
+        community_books = pd.DataFrame()
 
     community_records = []
 
     for row in community_books.itertuples(
         index=False
     ):
-
         community_records.append(
             {
                 "book_id": row.canonical_book_id,
@@ -905,10 +895,6 @@ def build_book_intelligence(
                 ),
             }
         )
-
-    # ------------------------------------------------------------------------
-    # Output object
-    # ------------------------------------------------------------------------
 
     return {
         "found": True,
@@ -943,16 +929,100 @@ def build_book_intelligence(
         "leiden_community": community_record,
         "community_examples": community_records,
         "notes": {
+            "community_resolution": float(
+                resolution
+            ),
             "community_resolution_status": (
-                "experimental"
-                if resolution == 3.0
-                else "experimental"
+                "finalized artifact configuration"
             ),
             "fuzzy_matching": (
                 "suggestions only; "
                 "never automatically accepted"
             ),
         },
+    }
+
+
+def build_community_intelligence(
+    community_id: int,
+    assignments: pd.DataFrame,
+    community_summary: pd.DataFrame,
+) -> dict:
+    """Build a report for a community."""
+
+    community_books = get_direct_community_books(
+        community_id,
+        assignments,
+    )
+
+    if community_books.empty:
+        return {
+            "found": False,
+            "community_id": community_id,
+        }
+
+    summary_match = community_summary[
+        community_summary["community_id"]
+        == community_id
+    ]
+
+    summary = None
+
+    if not summary_match.empty:
+        summary = summary_match.iloc[0]
+
+    return {
+        "found": True,
+        "community_id": community_id,
+        "community_size": len(
+            community_books
+        ),
+        "summary": (
+            {
+                "book_count": int(
+                    summary["book_count"]
+                ),
+                "internal_edge_count": int(
+                    summary["internal_edge_count"]
+                ),
+                "mean_internal_similarity": float(
+                    summary[
+                        "mean_internal_similarity"
+                    ]
+                ),
+                "median_internal_similarity": float(
+                    summary[
+                        "median_internal_similarity"
+                    ]
+                ),
+                "min_internal_similarity": float(
+                    summary[
+                        "min_internal_similarity"
+                    ]
+                ),
+                "max_internal_similarity": float(
+                    summary[
+                        "max_internal_similarity"
+                    ]
+                ),
+            }
+            if summary is not None
+            else None
+        ),
+        "books": [
+            {
+                "book_id": row.canonical_book_id,
+                "title": clean_display_text(
+                    row.title
+                ),
+                "author": clean_display_text(
+                    row.author
+                ),
+            }
+            for row in community_books.itertuples(
+                index=False
+            )
+        ],
     }
 
 
@@ -964,7 +1034,6 @@ def build_book_intelligence(
 def print_not_found_report(
     intelligence: dict,
 ) -> None:
-    """Print a safe not-found report."""
 
     print()
     print("=" * 72)
@@ -972,12 +1041,14 @@ def print_not_found_report(
     print("=" * 72)
 
     print()
+
     print(
         f'"{intelligence["query"]}" is not represented '
         f"in the current canonical book corpus."
     )
 
     print()
+
     print(
         "The inspector does not automatically substitute "
         "a fuzzy title match."
@@ -994,22 +1065,19 @@ def print_not_found_report(
         print("─" * 72)
 
         for index, row in enumerate(
-            suggestions.itertuples(
-                index=False
-            ),
+            suggestions,
             start=1,
         ):
-
             print(
                 f"{index}. "
-                f"{clean_display_text(row.title)} "
+                f"{clean_display_text(row['title'])} "
                 f"— "
-                f"{clean_display_text(row.author)}"
+                f"{clean_display_text(row['author'])}"
             )
 
             print(
                 f"   title similarity="
-                f"{row.match_score:.3f}"
+                f"{row['match_score']:.3f}"
             )
 
     else:
@@ -1025,7 +1093,7 @@ def print_not_found_report(
 
 
 # ============================================================================
-# Standard output
+# Standard book output
 # ============================================================================
 
 
@@ -1034,11 +1102,9 @@ def print_standard_report(
 ) -> None:
 
     if not intelligence["found"]:
-
         print_not_found_report(
             intelligence
         )
-
         return
 
     book = intelligence["book"]
@@ -1061,19 +1127,23 @@ def print_standard_report(
     print("=" * 72)
 
     print()
+
     print(
         f"📖 {book['title']}"
     )
+
     print(
         f"   {book['author']}"
     )
 
     print()
+
     print(
         f"Match: {book['match_method']}"
     )
 
     print()
+
     print("SEMANTIC PROFILE")
     print("─" * 72)
 
@@ -1114,9 +1184,7 @@ def print_standard_report(
 
             remaining = (
                 len(
-                    profile[
-                        "subjects"
-                    ]
+                    profile["subjects"]
                 )
                 - 12
             )
@@ -1196,34 +1264,43 @@ def print_standard_report(
             f"{community['community_id']}"
         )
 
-        if "community_size" in community:
+        print(
+            f"Community size: "
+            f"{community['community_size']:,}"
+        )
 
-            print(
-                f"Community size: "
-                f"{community['community_size']:,}"
-            )
+        print(
+            f"Internal edges: "
+            f"{community['internal_edge_count']:,}"
+        )
 
-            print(
-                f"Mean internal similarity: "
-                f"{community['mean_internal_similarity']:.3f}"
-            )
+        print(
+            f"Mean internal similarity: "
+            f"{community['mean_internal_similarity']:.3f}"
+        )
 
-            print(
-                f"Median internal similarity: "
-                f"{community['median_internal_similarity']:.3f}"
-            )
+        print(
+            f"Median internal similarity: "
+            f"{community['median_internal_similarity']:.3f}"
+        )
 
-            print(
-                f"Internal edge density: "
-                f"{community['internal_edge_density']:.4f}"
-            )
+        print(
+            f"Minimum internal similarity: "
+            f"{community['min_internal_similarity']:.3f}"
+        )
 
-            print(
-                "\nResolution status: experimental"
-            )
+        print(
+            f"Maximum internal similarity: "
+            f"{community['max_internal_similarity']:.3f}"
+        )
+
+        print(
+            "\nResolution status: "
+            "finalized artifact configuration"
+        )
 
     print()
-    print("COMMUNITY EXAMPLES")
+    print("COMMUNITY BOOKS")
     print("─" * 72)
 
     if not examples:
@@ -1250,6 +1327,101 @@ def print_standard_report(
 
 
 # ============================================================================
+# Community-only output
+# ============================================================================
+
+
+def print_community_report(
+    intelligence: dict,
+) -> None:
+
+    if not intelligence["found"]:
+
+        print()
+        print("=" * 72)
+        print("COMMUNITY NOT FOUND")
+        print("=" * 72)
+
+        print()
+
+        print(
+            f"No community with ID "
+            f"{intelligence['community_id']} "
+            f"exists in the current Leiden artifact."
+        )
+
+        print()
+        return
+
+    print()
+    print("=" * 72)
+    print("LEIDEN COMMUNITY")
+    print("=" * 72)
+
+    print()
+
+    print(
+        f"Community: "
+        f"{intelligence['community_id']}"
+    )
+
+    print(
+        f"Books: "
+        f"{intelligence['community_size']:,}"
+    )
+
+    summary = intelligence[
+        "summary"
+    ]
+
+    if summary is not None:
+
+        print(
+            f"Internal edges: "
+            f"{summary['internal_edge_count']:,}"
+        )
+
+        print(
+            f"Mean internal similarity: "
+            f"{summary['mean_internal_similarity']:.4f}"
+        )
+
+        print(
+            f"Median internal similarity: "
+            f"{summary['median_internal_similarity']:.4f}"
+        )
+
+        print(
+            f"Minimum internal similarity: "
+            f"{summary['min_internal_similarity']:.4f}"
+        )
+
+        print(
+            f"Maximum internal similarity: "
+            f"{summary['max_internal_similarity']:.4f}"
+        )
+
+    print()
+
+    print("BOOKS")
+    print("─" * 72)
+
+    for index, book in enumerate(
+        intelligence["books"],
+        start=1,
+    ):
+
+        print(
+            f"{index:>4}. "
+            f"{book['title']} "
+            f"— {book['author']}"
+        )
+
+    print()
+    print("=" * 72)
+
+
+# ============================================================================
 # Instagram output
 # ============================================================================
 
@@ -1263,7 +1435,6 @@ def print_instagram_report(
         print_not_found_report(
             intelligence
         )
-
         return
 
     book = intelligence["book"]
@@ -1283,6 +1454,7 @@ def print_instagram_report(
     print("=" * 72)
 
     print()
+
     print(
         f"📚 {book['title']}"
     )
@@ -1292,6 +1464,7 @@ def print_instagram_report(
     )
 
     print()
+
     print("WHAT THE DATA MODEL SEES")
     print("─" * 72)
 
@@ -1353,16 +1526,19 @@ def print_instagram_report(
             f"{community['community_id']}"
         )
 
-        if "community_size" in community:
+        print(
+            f"{community['community_size']:,} books"
+        )
 
-            print(
-                f"{community['community_size']:,} books"
-            )
+        print(
+            f"Mean internal similarity: "
+            f"{community['mean_internal_similarity']:.3f}"
+        )
 
         print(
             f"Resolution: "
             f"{community['resolution']} "
-            f"(experimental)"
+            f"(finalized artifact configuration)"
         )
 
     print()
@@ -1406,13 +1582,24 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Inspect semantic similarity and Leiden "
-            "community intelligence for one book."
+            "community intelligence."
         )
     )
 
     parser.add_argument(
         "book",
+        nargs="?",
         help="Book title to inspect.",
+    )
+
+    parser.add_argument(
+        "--community",
+        type=int,
+        default=None,
+        help=(
+            "Inspect a Leiden community directly "
+            "by community ID."
+        ),
     )
 
     parser.add_argument(
@@ -1420,7 +1607,8 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=DEFAULT_RESOLUTION,
         help=(
-            "Leiden resolution to inspect. "
+            "Final Leiden resolution represented by "
+            "the current artifact. "
             f"Default: {DEFAULT_RESOLUTION}"
         ),
     )
@@ -1440,8 +1628,18 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=DEFAULT_COMMUNITY_EXAMPLES,
         help=(
-            "Number of books to show from the community. "
+            "Number of books to show from the book's "
+            "community. "
             f"Default: {DEFAULT_COMMUNITY_EXAMPLES}"
+        ),
+    )
+
+    parser.add_argument(
+        "--all-community-books",
+        action="store_true",
+        help=(
+            "Show every book in the matched book's "
+            "Leiden community."
         ),
     )
 
@@ -1468,12 +1666,31 @@ def main() -> None:
 
     args = parse_args()
 
+    if args.book is None and args.community is None:
+
+        raise ValueError(
+            "Provide either a book title or "
+            "--community COMMUNITY_ID."
+        )
+
+    if (
+        args.book is not None
+        and args.community is not None
+    ):
+
+        raise ValueError(
+            "Provide either a book title or "
+            "--community, not both."
+        )
+
     if args.top < 1:
+
         raise ValueError(
             "--top must be at least 1."
         )
 
     if args.community_examples < 1:
+
         raise ValueError(
             "--community-examples must be at least 1."
         )
@@ -1485,6 +1702,36 @@ def main() -> None:
         community_summary,
     ) = load_artifacts()
 
+    # ------------------------------------------------------------------------
+    # Direct community inspection
+    # ------------------------------------------------------------------------
+
+    if args.community is not None:
+
+        intelligence = build_community_intelligence(
+            community_id=args.community,
+            assignments=assignments,
+            community_summary=community_summary,
+        )
+
+        if args.format == "json":
+
+            print_json_report(
+                intelligence
+            )
+
+        else:
+
+            print_community_report(
+                intelligence
+            )
+
+        return
+
+    # ------------------------------------------------------------------------
+    # Book inspection
+    # ------------------------------------------------------------------------
+
     intelligence = build_book_intelligence(
         query=args.book,
         neighborhoods=neighborhoods,
@@ -1494,6 +1741,7 @@ def main() -> None:
         resolution=args.resolution,
         top_n=args.top,
         community_examples=args.community_examples,
+        all_community_books=args.all_community_books,
     )
 
     if args.format == "instagram":

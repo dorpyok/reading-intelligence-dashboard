@@ -1,37 +1,50 @@
 """
-Run Leiden community detection on the frozen semantic similarity graph.
+Finalize semantic book communities using the frozen semantic graph.
 
-Input
------
-data/processed/canonical/semantic_neighborhoods.csv
+Production Model C configuration
+--------------------------------
+Embedding model:
+    all-MiniLM-L6-v2
 
-The input is the existing top-k semantic similarity graph generated from
-the frozen all-MiniLM-L6-v2 embeddings.
+Semantic representation:
+    Title + Author + Description + curated Open Library Subjects
 
-Each book is a node.
-Each semantic neighbor relationship is a weighted edge.
-The directed top-k graph is symmetrized before Leiden community detection.
+Graph:
+    Weighted, symmetrized thresholded k-nearest-neighbor graph
+
+Graph parameters:
+    K = 20
+    Minimum cosine similarity = 0.40
+    Edge weight = cosine similarity
+
+Community detection:
+    Leiden
+    RBConfigurationVertexPartition
+    Resolution = 3.0
+    Seed = 42
+
+This script intentionally does NOT perform parameter tuning.
+Parameter selection was completed during the semantic community
+detection experiments and is documented separately.
 
 Outputs
 -------
 data/processed/canonical/leiden/
-    leiden_tuning.csv
     leiden_assignments.csv
     leiden_community_summary.csv
-
-This is an experiment only. It does not modify the existing Model C outputs.
+    leiden_graph_diagnostics.csv
+    leiden_edges.csv
 """
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
-from typing import Iterable
 
 import igraph as ig
 import leidenalg
 import numpy as np
 import pandas as pd
-from sklearn.metrics import adjusted_rand_score
 
 
 # ---------------------------------------------------------------------------
@@ -40,12 +53,20 @@ from sklearn.metrics import adjusted_rand_score
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-INPUT_PATH = (
+SEMANTIC_BOOKS_PATH = (
     PROJECT_ROOT
     / "data"
     / "processed"
     / "canonical"
-    / "semantic_neighborhoods.csv"
+    / "semantic_books.csv"
+)
+
+EMBEDDINGS_PATH = (
+    PROJECT_ROOT
+    / "data"
+    / "processed"
+    / "canonical"
+    / "semantic_embeddings.npy"
 )
 
 OUTPUT_DIR = (
@@ -56,70 +77,80 @@ OUTPUT_DIR = (
     / "leiden"
 )
 
-TUNING_OUTPUT = OUTPUT_DIR / "leiden_tuning.csv"
-ASSIGNMENTS_OUTPUT = OUTPUT_DIR / "leiden_assignments.csv"
-COMMUNITY_SUMMARY_OUTPUT = OUTPUT_DIR / "leiden_community_summary.csv"
+ASSIGNMENTS_PATH = OUTPUT_DIR / "leiden_assignments.csv"
+SUMMARY_PATH = OUTPUT_DIR / "leiden_community_summary.csv"
+DIAGNOSTICS_PATH = OUTPUT_DIR / "leiden_graph_diagnostics.csv"
+EDGES_PATH = OUTPUT_DIR / "leiden_edges.csv"
 
 
-# Start with a broad range. We will narrow this after seeing the results.
-RESOLUTION_VALUES = [
-    0.25,
-    0.5,
-    0.75,
-    1.0,
-    1.5,
-    2.0,
-    3.0,
-]
+# Frozen Model C parameters.
+K = 20
+MIN_SIMILARITY = 0.40
 
-# Multiple seeds let us measure whether the solution is stable.
-RANDOM_SEEDS = [42, 123, 2026]
+LEIDEN_RESOLUTION = 3.0
+LEIDEN_SEED = 42
 
 
 # ---------------------------------------------------------------------------
-# Input validation
+# Validation helpers
 # ---------------------------------------------------------------------------
 
 
-REQUIRED_COLUMNS = {
-    "query_embedding_row",
-    "neighbor_embedding_row",
-    "rank",
-    "similarity",
-    "query_book_id",
-    "query_title",
-    "query_author",
-    "neighbor_book_id",
-    "neighbor_title",
-    "neighbor_author",
-}
+def require_columns(
+    dataframe: pd.DataFrame,
+    required_columns: list[str],
+    dataframe_name: str,
+) -> None:
+    """Raise a clear error if required columns are missing."""
 
-
-def validate_input(df: pd.DataFrame) -> None:
-    """Validate the expected semantic-neighborhood schema."""
-
-    missing = REQUIRED_COLUMNS - set(df.columns)
+    missing = [
+        column
+        for column in required_columns
+        if column not in dataframe.columns
+    ]
 
     if missing:
         raise ValueError(
-            "semantic_neighborhoods.csv is missing required columns: "
-            + ", ".join(sorted(missing))
+            f"{dataframe_name} is missing required columns: {missing}"
         )
 
-    if df.empty:
-        raise ValueError("semantic_neighborhoods.csv is empty.")
 
-    if df["query_book_id"].isna().any():
-        raise ValueError("query_book_id contains missing values.")
+def validate_embeddings(
+    embeddings: np.ndarray,
+    expected_rows: int,
+) -> np.ndarray:
+    """
+    Validate and normalize the embedding matrix.
 
-    if df["neighbor_book_id"].isna().any():
-        raise ValueError("neighbor_book_id contains missing values.")
+    The saved semantic embeddings are expected to already be normalized,
+    but normalization is repeated here defensively so cosine similarity
+    calculations are explicit and deterministic.
+    """
 
-    if df["similarity"].isna().any():
-        raise ValueError("similarity contains missing values.")
+    if embeddings.ndim != 2:
+        raise ValueError(
+            f"Expected a 2-dimensional embedding matrix. "
+            f"Received shape {embeddings.shape}."
+        )
 
-    if not np.isfinite(df["similarity"].to_numpy(dtype=float)).all():
-        raise ValueError("similarity contains non-finite values.")
+    if embeddings.shape[0] != expected_rows:
+        raise ValueError(
+            "Embedding row count does not match semantic metadata: "
+            f"{embeddings.shape[0]} embeddings vs "
+            f"{expected_rows} semantic books."
+        )
+
+    if not np.isfinite(embeddings).all():
+        raise ValueError("Embedding matrix contains non-finite values.")
+
+    norms = np.linalg.norm(embeddings, axis=1)
+
+    if np.any(norms == 0):
+        raise ValueError("Embedding matrix contains zero-length vectors.")
+
+    normalized = embeddings / norms[:, None]
+
+    return normalized.astype(np.float32)
 
 
 # ---------------------------------------------------------------------------
@@ -127,122 +158,281 @@ def validate_input(df: pd.DataFrame) -> None:
 # ---------------------------------------------------------------------------
 
 
-def build_undirected_edge_table(
-    neighborhoods: pd.DataFrame,
-) -> pd.DataFrame:
+def build_thresholded_knn_graph(
+    embeddings: np.ndarray,
+    k: int,
+    min_similarity: float,
+) -> tuple[ig.Graph, pd.DataFrame]:
     """
-    Convert the directed top-k graph into an undirected weighted graph.
+    Build a weighted, symmetrized thresholded kNN graph.
 
-    The source file contains relationships such as:
+    Each book considers its K nearest neighbors.
+
+    An edge is retained only when:
+
+        cosine_similarity >= min_similarity
+
+    The graph is then symmetrized:
 
         A -> B
         B -> A
 
-    or potentially only:
+    become one undirected weighted edge.
 
-        A -> B
+    If both directions exist, the maximum similarity is retained.
 
-    For reciprocal relationships, the edge weight is the mean similarity.
-    For one-way relationships, the observed similarity is retained.
-
-    This avoids treating A -> B and B -> A as two independent edges.
+    This deliberately allows variable degree, including zero-degree
+    books. Books are not forced into a community.
     """
 
-    edges = neighborhoods[
-        [
-            "query_book_id",
-            "neighbor_book_id",
-            "similarity",
-        ]
+    n_books = embeddings.shape[0]
+
+    if n_books < 2:
+        raise ValueError("At least two books are required.")
+
+    if k < 1:
+        raise ValueError("k must be at least 1.")
+
+    k = min(k, n_books - 1)
+
+    print()
+    print("Building cosine similarity matrix...")
+    similarity_matrix = embeddings @ embeddings.T
+
+    # Numerical protection.
+    similarity_matrix = np.clip(
+        similarity_matrix,
+        -1.0,
+        1.0,
+    )
+
+    # Never allow self-neighbors.
+    np.fill_diagonal(similarity_matrix, -np.inf)
+
+    print(f"Books: {n_books:,}")
+    print(f"K: {k}")
+    print(f"Minimum similarity: {min_similarity:.2f}")
+
+    # ------------------------------------------------------------------
+    # Find K nearest neighbors for every book.
+    #
+    # argpartition avoids a full sort across every row.
+    # ------------------------------------------------------------------
+
+    neighbor_indices = np.argpartition(
+        similarity_matrix,
+        -k,
+        axis=1,
+    )[:, -k:]
+
+    rows = np.repeat(
+        np.arange(n_books),
+        k,
+    )
+
+    cols = neighbor_indices.reshape(-1)
+
+    similarities = similarity_matrix[
+        rows,
+        cols,
+    ]
+
+    candidate_edges = pd.DataFrame(
+        {
+            "source": rows,
+            "target": cols,
+            "similarity": similarities,
+        }
+    )
+
+    candidate_edges = candidate_edges[
+        candidate_edges["similarity"] >= min_similarity
     ].copy()
 
-    edges["book_a"] = edges[["query_book_id", "neighbor_book_id"]].min(axis=1)
-    edges["book_b"] = edges[["query_book_id", "neighbor_book_id"]].max(axis=1)
+    print(
+        f"Directed candidate edges retained: "
+        f"{len(candidate_edges):,}"
+    )
 
-    # Remove self-loops.
-    edges = edges[edges["book_a"] != edges["book_b"]].copy()
-
+    # ------------------------------------------------------------------
     # Symmetrize the graph.
     #
-    # If A -> B and B -> A both exist, average the similarities.
-    # If only one direction exists, retain that similarity.
+    # A -> B and B -> A represent the same undirected relationship.
+    # Canonicalize the node pair so duplicates can be grouped.
+    # ------------------------------------------------------------------
+
+    candidate_edges["node_a"] = candidate_edges[
+        ["source", "target"]
+    ].min(axis=1)
+
+    candidate_edges["node_b"] = candidate_edges[
+        ["source", "target"]
+    ].max(axis=1)
+
     edges = (
-        edges.groupby(["book_a", "book_b"], as_index=False)
-        .agg(
-            similarity=("similarity", "mean"),
-            directed_relationships=("similarity", "size"),
+        candidate_edges
+        .groupby(
+            ["node_a", "node_b"],
+            as_index=False,
+        )["similarity"]
+        .max()
+        .rename(
+            columns={
+                "node_a": "source",
+                "node_b": "target",
+            }
         )
     )
 
-    return edges
+    edges = edges[
+        edges["source"] != edges["target"]
+    ].copy()
 
-
-def build_graph(
-    neighborhoods: pd.DataFrame,
-) -> tuple[ig.Graph, pd.DataFrame]:
-    """
-    Build an undirected weighted igraph graph.
-
-    Returns
-    -------
-    graph
-        Undirected weighted igraph graph.
-
-    node_metadata
-        One row per graph node.
-    """
-
-    node_records = {}
-
-    for row in neighborhoods.itertuples(index=False):
-        node_records[row.query_book_id] = {
-            "book_id": row.query_book_id,
-            "title": row.query_title,
-            "author": row.query_author,
-        }
-
-        node_records[row.neighbor_book_id] = {
-            "book_id": row.neighbor_book_id,
-            "title": row.neighbor_title,
-            "author": row.neighbor_author,
-        }
-
-    node_metadata = pd.DataFrame(node_records.values())
-
-    node_metadata = node_metadata.sort_values(
-        "book_id"
+    edges = edges.sort_values(
+        ["source", "target"]
     ).reset_index(drop=True)
 
-    node_index = {
-        book_id: index
-        for index, book_id in enumerate(node_metadata["book_id"])
-    }
+    print(
+        f"Undirected graph edges: "
+        f"{len(edges):,}"
+    )
 
-    edges = build_undirected_edge_table(neighborhoods)
-
-    graph_edges = [
-        (
-            node_index[row.book_a],
-            node_index[row.book_b],
-        )
-        for row in edges.itertuples(index=False)
-    ]
-
-    weights = edges["similarity"].astype(float).tolist()
+    # ------------------------------------------------------------------
+    # Build igraph.
+    # ------------------------------------------------------------------
 
     graph = ig.Graph(
-        n=len(node_metadata),
-        edges=graph_edges,
+        n=n_books,
+        edges=list(
+            zip(
+                edges["source"].astype(int),
+                edges["target"].astype(int),
+            )
+        ),
         directed=False,
     )
 
-    graph.es["weight"] = weights
+    graph.es["weight"] = (
+        edges["similarity"]
+        .astype(float)
+        .tolist()
+    )
 
-    return graph, node_metadata
+    return graph, edges
 
 
 # ---------------------------------------------------------------------------
-# Leiden
+# Graph diagnostics
+# ---------------------------------------------------------------------------
+
+
+def calculate_graph_diagnostics(
+    graph: ig.Graph,
+    edges: pd.DataFrame,
+) -> pd.DataFrame:
+    """Calculate structural diagnostics for the final graph."""
+
+    n_nodes = graph.vcount()
+    n_edges = graph.ecount()
+
+    possible_edges = n_nodes * (n_nodes - 1) / 2
+
+    density = (
+        n_edges / possible_edges
+        if possible_edges > 0
+        else 0.0
+    )
+
+    degrees = np.asarray(
+        graph.degree(),
+        dtype=np.int64,
+    )
+
+    isolated_count = int(
+        np.sum(degrees == 0)
+    )
+
+    components = graph.components()
+
+    component_sizes = np.asarray(
+        components.sizes(),
+        dtype=np.int64,
+    )
+
+    largest_component = (
+        int(component_sizes.max())
+        if len(component_sizes)
+        else 0
+    )
+
+    largest_component_pct = (
+        largest_component / n_nodes
+        if n_nodes
+        else 0.0
+    )
+
+    similarities = edges["similarity"].to_numpy(
+        dtype=float
+    )
+
+    diagnostics = {
+        "graph": "thresholded_knn",
+        "k": K,
+        "min_similarity": MIN_SIMILARITY,
+        "nodes": n_nodes,
+        "edges": n_edges,
+        "density": density,
+        "isolated_nodes": isolated_count,
+        "isolated_pct": (
+            isolated_count / n_nodes
+            if n_nodes
+            else 0.0
+        ),
+        "components": len(component_sizes),
+        "largest_component": largest_component,
+        "largest_component_pct": largest_component_pct,
+        "mean_similarity": (
+            float(np.mean(similarities))
+            if len(similarities)
+            else np.nan
+        ),
+        "median_similarity": (
+            float(np.median(similarities))
+            if len(similarities)
+            else np.nan
+        ),
+        "min_similarity": (
+            float(np.min(similarities))
+            if len(similarities)
+            else np.nan
+        ),
+        "max_similarity": (
+            float(np.max(similarities))
+            if len(similarities)
+            else np.nan
+        ),
+        "mean_degree": (
+            float(np.mean(degrees))
+            if len(degrees)
+            else np.nan
+        ),
+        "median_degree": (
+            float(np.median(degrees))
+            if len(degrees)
+            else np.nan
+        ),
+        "max_degree": (
+            int(np.max(degrees))
+            if len(degrees)
+            else 0
+        ),
+    }
+
+    return pd.DataFrame([diagnostics])
+
+
+# ---------------------------------------------------------------------------
+# Leiden community detection
 # ---------------------------------------------------------------------------
 
 
@@ -250,14 +440,19 @@ def run_leiden(
     graph: ig.Graph,
     resolution: float,
     seed: int,
-) -> tuple[np.ndarray, float]:
+) -> tuple[leidenalg.VertexPartition, np.ndarray]:
     """
-    Run Leiden using the resolution-parameterized modularity formulation.
+    Run Leiden using RBConfigurationVertexPartition.
 
-    RBConfigurationVertexPartition gives us a resolution parameter:
-        lower resolution  -> broader communities
-        higher resolution -> finer communities
+    Returns:
+        partition
+        membership array
     """
+
+    if graph.ecount() == 0:
+        raise ValueError(
+            "Cannot run Leiden on a graph with zero edges."
+        )
 
     partition = leidenalg.find_partition(
         graph,
@@ -267,12 +462,12 @@ def run_leiden(
         seed=seed,
     )
 
-    labels = np.full(graph.vcount(), -1, dtype=int)
+    membership = np.asarray(
+        partition.membership,
+        dtype=np.int64,
+    )
 
-    for community_id, members in enumerate(partition):
-        labels[members] = community_id
-
-    return labels, float(partition.modularity)
+    return partition, membership
 
 
 # ---------------------------------------------------------------------------
@@ -280,444 +475,594 @@ def run_leiden(
 # ---------------------------------------------------------------------------
 
 
-def calculate_community_metrics(
+def calculate_community_summary(
     graph: ig.Graph,
-    labels: np.ndarray,
+    edges: pd.DataFrame,
+    membership: np.ndarray,
 ) -> pd.DataFrame:
     """
-    Calculate structural metrics for every community.
+    Calculate community-level structural metrics.
 
-    Metrics are based on the actual semantic graph rather than the
-    embeddings directly.
+    Internal similarity is calculated only from graph edges whose two
+    endpoints belong to the same community.
+
+    Singleton communities therefore have no internal edges and receive
+    NaN for internal similarity.
     """
 
-    edge_source = np.asarray(graph.get_edgelist(), dtype=int)
-    weights = np.asarray(graph.es["weight"], dtype=float)
-
-    rows = []
-
-    community_ids = sorted(np.unique(labels))
-
-    for community_id in community_ids:
-        member_nodes = np.where(labels == community_id)[0]
-        member_set = set(member_nodes.tolist())
-
-        size = len(member_nodes)
-
-        internal_mask = np.array(
-            [
-                source in member_set and target in member_set
-                for source, target in edge_source
-            ],
-            dtype=bool,
+    if len(membership) != graph.vcount():
+        raise ValueError(
+            "Membership length does not match graph node count."
         )
 
-        internal_weights = weights[internal_mask]
+    community_ids = np.unique(membership)
 
-        internal_edge_count = len(internal_weights)
+    rows: list[dict] = []
 
-        if internal_edge_count > 0:
-            mean_internal_similarity = float(
-                internal_weights.mean()
-            )
-            median_internal_similarity = float(
-                np.median(internal_weights)
-            )
-        else:
-            mean_internal_similarity = np.nan
-            median_internal_similarity = np.nan
+    source = edges["source"].to_numpy(dtype=np.int64)
+    target = edges["target"].to_numpy(dtype=np.int64)
+    weights = edges["similarity"].to_numpy(dtype=float)
 
-        possible_edges = size * (size - 1) / 2
+    same_community = (
+        membership[source]
+        == membership[target]
+    )
 
-        if possible_edges > 0:
-            internal_edge_density = (
-                internal_edge_count / possible_edges
-            )
-        else:
-            internal_edge_density = np.nan
+    internal_edges = edges.loc[
+        same_community
+    ].copy()
+
+    internal_edges["community_id"] = membership[
+        internal_edges["source"].to_numpy(
+            dtype=np.int64
+        )
+    ]
+
+    for community_id in community_ids:
+
+        node_mask = membership == community_id
+
+        book_count = int(
+            np.sum(node_mask)
+        )
+
+        community_internal = internal_edges[
+            internal_edges["community_id"]
+            == community_id
+        ]
+
+        internal_similarities = (
+            community_internal["similarity"]
+            .to_numpy(dtype=float)
+        )
 
         rows.append(
             {
-                "community_id": community_id,
-                "community_size": size,
-                "internal_edge_count": internal_edge_count,
-                "internal_edge_density": internal_edge_density,
-                "mean_internal_similarity": mean_internal_similarity,
-                "median_internal_similarity": median_internal_similarity,
+                "community_id": int(community_id),
+                "book_count": book_count,
+                "internal_edge_count": int(
+                    len(internal_similarities)
+                ),
+                "mean_internal_similarity": (
+                    float(
+                        np.mean(
+                            internal_similarities
+                        )
+                    )
+                    if len(internal_similarities)
+                    else np.nan
+                ),
+                "median_internal_similarity": (
+                    float(
+                        np.median(
+                            internal_similarities
+                        )
+                    )
+                    if len(internal_similarities)
+                    else np.nan
+                ),
+                "min_internal_similarity": (
+                    float(
+                        np.min(
+                            internal_similarities
+                        )
+                    )
+                    if len(internal_similarities)
+                    else np.nan
+                ),
+                "max_internal_similarity": (
+                    float(
+                        np.max(
+                            internal_similarities
+                        )
+                    )
+                    if len(internal_similarities)
+                    else np.nan
+                ),
             }
         )
 
-    return pd.DataFrame(rows)
+    summary = pd.DataFrame(rows)
+
+    summary = summary.sort_values(
+        "book_count",
+        ascending=False,
+    ).reset_index(drop=True)
+
+    return summary
 
 
-def summarize_partition(
-    graph: ig.Graph,
-    labels: np.ndarray,
-    resolution: float,
-    seed: int,
-    modularity: float,
-) -> dict:
-    """Return a single row describing a Leiden partition."""
+# ---------------------------------------------------------------------------
+# Assignment artifact
+# ---------------------------------------------------------------------------
 
-    community_sizes = pd.Series(labels).value_counts()
 
-    community_metrics = calculate_community_metrics(
-        graph,
-        labels,
+def build_assignments(
+    semantic_books: pd.DataFrame,
+    membership: np.ndarray,
+    partition: leidenalg.VertexPartition,
+) -> pd.DataFrame:
+    """Build the final book-to-community assignment artifact."""
+
+    if len(membership) != len(semantic_books):
+        raise ValueError(
+            "Membership length does not match semantic book count."
+        )
+
+    assignments = semantic_books.copy()
+
+    assignments["embedding_row"] = np.arange(
+        len(assignments),
+        dtype=np.int64,
     )
 
-    assigned = len(labels)
-    number_of_communities = len(community_sizes)
+    assignments["community_id"] = membership
 
-    return {
-        "resolution": resolution,
-        "seed": seed,
-        "nodes": graph.vcount(),
-        "edges": graph.ecount(),
-        "communities": number_of_communities,
-        "assigned_books": assigned,
-        "min_community_size": int(community_sizes.min()),
-        "median_community_size": float(
-            community_sizes.median()
-        ),
-        "mean_community_size": float(
-            community_sizes.mean()
-        ),
-        "max_community_size": int(community_sizes.max()),
-        "singleton_communities": int(
-            (community_sizes == 1).sum()
-        ),
-        "modularity": modularity,
-        "mean_internal_similarity": float(
-            community_metrics[
-                "mean_internal_similarity"
-            ].mean()
-        ),
-        "median_internal_similarity": float(
-            community_metrics[
-                "median_internal_similarity"
-            ].median()
-        ),
-        "_labels": labels,
-    }
+    # Leiden's community membership is a hard assignment.
+    #
+    # We do not invent a probability here. A future version could add
+    # a separate community-strength metric if needed.
+    assignments["community_probability"] = 1.0
+
+    # Put the most useful columns first.
+    preferred_columns = [
+        "canonical_book_id",
+        "title",
+        "author",
+        "embedding_row",
+        "community_id",
+        "community_probability",
+    ]
+
+    remaining_columns = [
+        column
+        for column in assignments.columns
+        if column not in preferred_columns
+    ]
+
+    assignments = assignments[
+        preferred_columns + remaining_columns
+    ]
+
+    return assignments
 
 
 # ---------------------------------------------------------------------------
-# Stability
+# Output validation
 # ---------------------------------------------------------------------------
 
 
-def calculate_stability(
-    partition_results: list[dict],
-) -> list[dict]:
-    """
-    Calculate pairwise Adjusted Rand Index across seeds.
+def validate_outputs(
+    assignments: pd.DataFrame,
+    summary: pd.DataFrame,
+    semantic_books: pd.DataFrame,
+    graph: ig.Graph,
+) -> None:
+    """Validate final Model C artifacts before reporting success."""
 
-    ARI = 1 means identical community assignments.
-    ARI near 0 means little agreement beyond chance.
-    """
+    require_columns(
+        assignments,
+        [
+            "canonical_book_id",
+            "title",
+            "author",
+            "embedding_row",
+            "community_id",
+            "community_probability",
+        ],
+        "Leiden assignments",
+    )
 
-    output = []
+    require_columns(
+        summary,
+        [
+            "community_id",
+            "book_count",
+        ],
+        "Leiden community summary",
+    )
 
-    grouped: dict[float, list[dict]] = {}
+    if len(assignments) != len(semantic_books):
+        raise ValueError(
+            "Final assignment count does not match semantic corpus."
+        )
 
-    for result in partition_results:
-        grouped.setdefault(result["resolution"], []).append(result)
+    if assignments["canonical_book_id"].duplicated().any():
+        raise ValueError(
+            "Duplicate canonical book IDs found in final assignments."
+        )
 
-    for resolution, results in grouped.items():
+    if assignments["community_id"].isna().any():
+        raise ValueError(
+            "Some books have no community assignment."
+        )
 
-        for i in range(len(results)):
-            for j in range(i + 1, len(results)):
+    if assignments["community_id"].nunique() != len(summary):
+        raise ValueError(
+            "Community summary count does not match assignments."
+        )
 
-                ari = adjusted_rand_score(
-                    results[i]["_labels"],
-                    results[j]["_labels"],
-                )
+    if assignments["community_id"].nunique() != len(
+        np.unique(
+            assignments["community_id"]
+        )
+    ):
+        raise ValueError(
+            "Unexpected community ID structure."
+        )
 
-                output.append(
-                    {
-                        "resolution": resolution,
-                        "seed_a": results[i]["seed"],
-                        "seed_b": results[j]["seed"],
-                        "adjusted_rand_index": float(ari),
-                    }
-                )
+    # Every graph node must have one assignment.
+    if graph.vcount() != len(assignments):
+        raise ValueError(
+            "Graph node count does not match assignment count."
+        )
 
-    return output
+    # Community sizes should sum to the number of books.
+    if summary["book_count"].sum() != len(
+        assignments
+    ):
+        raise ValueError(
+            "Community sizes do not sum to corpus size."
+        )
 
 
 # ---------------------------------------------------------------------------
-# Main experiment
+# Main
 # ---------------------------------------------------------------------------
 
 
 def main() -> None:
 
     print("=" * 72)
-    print("LEIDEN SEMANTIC COMMUNITY DETECTION")
+    print("FINALIZE LEIDEN SEMANTIC COMMUNITIES")
     print("=" * 72)
 
-    print(f"\nInput: {INPUT_PATH}")
-
-    neighborhoods = pd.read_csv(INPUT_PATH)
-
-    validate_input(neighborhoods)
-
-    print(f"Input relationships: {len(neighborhoods):,}")
+    print()
+    print("Frozen configuration:")
+    print(f"  KNN K:                  {K}")
+    print(f"  Minimum similarity:     {MIN_SIMILARITY:.2f}")
     print(
-        "Unique query books:",
-        neighborhoods["query_book_id"].nunique(),
+        "  Leiden algorithm:       "
+        "RBConfigurationVertexPartition"
     )
     print(
-        "Unique neighbor books:",
-        neighborhoods["neighbor_book_id"].nunique(),
+        f"  Leiden resolution:      {LEIDEN_RESOLUTION:.2f}"
+    )
+    print(f"  Leiden seed:            {LEIDEN_SEED}")
+
+    # ------------------------------------------------------------------
+    # Load semantic corpus.
+    # ------------------------------------------------------------------
+
+    if not SEMANTIC_BOOKS_PATH.exists():
+        raise FileNotFoundError(
+            f"Semantic books file not found:\n"
+            f"{SEMANTIC_BOOKS_PATH}"
+        )
+
+    if not EMBEDDINGS_PATH.exists():
+        raise FileNotFoundError(
+            f"Embedding file not found:\n"
+            f"{EMBEDDINGS_PATH}"
+        )
+
+    semantic_books = pd.read_csv(
+        SEMANTIC_BOOKS_PATH
     )
 
-    graph, node_metadata = build_graph(
-        neighborhoods
+    require_columns(
+        semantic_books,
+        [
+            "canonical_book_id",
+            "title",
+            "author",
+        ],
+        "Semantic books",
     )
 
-    print("\nGraph")
-    print("-" * 72)
-    print(f"Nodes: {graph.vcount():,}")
-    print(f"Edges: {graph.ecount():,}")
-    print(f"Directed input relationships: {len(neighborhoods):,}")
+    if semantic_books[
+        "canonical_book_id"
+    ].duplicated().any():
 
-    weights = np.asarray(
-        graph.es["weight"],
-        dtype=float,
+        raise ValueError(
+            "Semantic corpus contains duplicate "
+            "canonical_book_id values."
+        )
+
+    print()
+    print(
+        f"Semantic books loaded: "
+        f"{len(semantic_books):,}"
     )
 
-    print(f"Mean edge similarity: {weights.mean():.4f}")
-    print(f"Median edge similarity: {np.median(weights):.4f}")
-    print(f"Minimum edge similarity: {weights.min():.4f}")
-    print(f"Maximum edge similarity: {weights.max():.4f}")
+    # ------------------------------------------------------------------
+    # Load frozen embeddings.
+    # ------------------------------------------------------------------
+
+    embeddings = np.load(
+        EMBEDDINGS_PATH
+    )
+
+    embeddings = validate_embeddings(
+        embeddings,
+        expected_rows=len(semantic_books),
+    )
+
+    print(
+        f"Embeddings loaded: "
+        f"{embeddings.shape[0]:,} × "
+        f"{embeddings.shape[1]}"
+    )
+
+    # ------------------------------------------------------------------
+    # Build final graph.
+    # ------------------------------------------------------------------
+
+    graph, edges = build_thresholded_knn_graph(
+        embeddings=embeddings,
+        k=K,
+        min_similarity=MIN_SIMILARITY,
+    )
+
+    print()
+    print(
+        f"Graph nodes: "
+        f"{graph.vcount():,}"
+    )
+
+    print(
+        f"Graph edges: "
+        f"{graph.ecount():,}"
+    )
+
+    # ------------------------------------------------------------------
+    # Diagnostics.
+    # ------------------------------------------------------------------
+
+    diagnostics = calculate_graph_diagnostics(
+        graph=graph,
+        edges=edges,
+    )
+
+    print()
+    print("Graph diagnostics:")
+    print(
+        diagnostics[
+            [
+                "nodes",
+                "edges",
+                "density",
+                "isolated_nodes",
+                "isolated_pct",
+                "components",
+                "largest_component",
+                "largest_component_pct",
+                "mean_similarity",
+                "median_similarity",
+                "mean_degree",
+                "median_degree",
+                "max_degree",
+            ]
+        ].to_string(index=False)
+    )
+
+    # ------------------------------------------------------------------
+    # Run final Leiden.
+    # ------------------------------------------------------------------
+
+    print()
+    print("Running final Leiden community detection...")
+
+    partition, membership = run_leiden(
+        graph=graph,
+        resolution=LEIDEN_RESOLUTION,
+        seed=LEIDEN_SEED,
+    )
+
+    community_count = int(
+        len(np.unique(membership))
+    )
+
+    print(
+        f"Communities discovered: "
+        f"{community_count:,}"
+    )
+
+    # ------------------------------------------------------------------
+    # Build final artifacts.
+    # ------------------------------------------------------------------
+
+    assignments = build_assignments(
+        semantic_books=semantic_books,
+        membership=membership,
+        partition=partition,
+    )
+
+    summary = calculate_community_summary(
+        graph=graph,
+        edges=edges,
+        membership=membership,
+    )
+
+    validate_outputs(
+        assignments=assignments,
+        summary=summary,
+        semantic_books=semantic_books,
+        graph=graph,
+    )
+
+    # ------------------------------------------------------------------
+    # Save outputs.
+    # ------------------------------------------------------------------
 
     OUTPUT_DIR.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    partition_results = []
-
-    print("\nRunning Leiden")
-    print("-" * 72)
-
-    for resolution in RESOLUTION_VALUES:
-
-        print(
-            f"\nResolution {resolution}"
-        )
-
-        for seed in RANDOM_SEEDS:
-
-            labels, modularity = run_leiden(
-                graph=graph,
-                resolution=resolution,
-                seed=seed,
-            )
-
-            result = summarize_partition(
-                graph=graph,
-                labels=labels,
-                resolution=resolution,
-                seed=seed,
-                modularity=modularity,
-            )
-
-            partition_results.append(result)
-
-            print(
-                f"  seed={seed}: "
-                f"{result['communities']} communities | "
-                f"median size="
-                f"{result['median_community_size']:.1f} | "
-                f"modularity="
-                f"{result['modularity']:.4f} | "
-                f"mean internal similarity="
-                f"{result['mean_internal_similarity']:.4f}"
-            )
-
-    # -----------------------------------------------------------------------
-    # Stability
-    # -----------------------------------------------------------------------
-
-    stability = calculate_stability(
-        partition_results
-    )
-
-    stability_df = pd.DataFrame(stability)
-
-    if not stability_df.empty:
-        stability_summary = (
-            stability_df
-            .groupby("resolution", as_index=False)
-            .agg(
-                mean_ari=(
-                    "adjusted_rand_index",
-                    "mean",
-                ),
-                min_ari=(
-                    "adjusted_rand_index",
-                    "min",
-                ),
-                max_ari=(
-                    "adjusted_rand_index",
-                    "max",
-                ),
-            )
-        )
-    else:
-        stability_summary = pd.DataFrame(
-            columns=[
-                "resolution",
-                "mean_ari",
-                "min_ari",
-                "max_ari",
-            ]
-        )
-
-    # -----------------------------------------------------------------------
-    # Tuning table
-    # -----------------------------------------------------------------------
-
-    tuning_rows = []
-
-    for result in partition_results:
-
-        tuning_rows.append(
-            {
-                key: value
-                for key, value in result.items()
-                if key != "_labels"
-            }
-        )
-
-    tuning_df = pd.DataFrame(tuning_rows)
-
-    tuning_df = tuning_df.merge(
-        stability_summary,
-        on="resolution",
-        how="left",
-    )
-
-    tuning_df.to_csv(
-        TUNING_OUTPUT,
+    assignments.to_csv(
+        ASSIGNMENTS_PATH,
         index=False,
     )
 
-    # -----------------------------------------------------------------------
-    # Choose a representative partition for each resolution.
-    #
-    # We use seed 42 as the reproducible representative.
-    # This is NOT the final selected resolution.
-    # -----------------------------------------------------------------------
-
-    assignment_rows = []
-    community_summary_rows = []
-
-    for resolution in RESOLUTION_VALUES:
-
-        representative = next(
-            result
-            for result in partition_results
-            if result["resolution"] == resolution
-            and result["seed"] == 42
-        )
-
-        labels = representative["_labels"]
-
-        community_metrics = calculate_community_metrics(
-            graph,
-            labels,
-        )
-
-        community_metrics.insert(
-            0,
-            "resolution",
-            resolution,
-        )
-
-        community_summary_rows.append(
-            community_metrics
-        )
-
-        for node_index, community_id in enumerate(labels):
-
-            book = node_metadata.iloc[node_index]
-
-            assignment_rows.append(
-                {
-                    "resolution": resolution,
-                    "embedding_row": node_index,
-                    "canonical_book_id": book["book_id"],
-                    "title": book["title"],
-                    "author": book["author"],
-                    "community_id": int(community_id),
-                }
-            )
-
-    assignments_df = pd.DataFrame(
-        assignment_rows
-    )
-
-    assignments_df.to_csv(
-        ASSIGNMENTS_OUTPUT,
+    summary.to_csv(
+        SUMMARY_PATH,
         index=False,
     )
 
-    community_summary_df = pd.concat(
-        community_summary_rows,
-        ignore_index=True,
-    )
-
-    community_summary_df.to_csv(
-        COMMUNITY_SUMMARY_OUTPUT,
+    diagnostics.to_csv(
+        DIAGNOSTICS_PATH,
         index=False,
     )
 
-    # -----------------------------------------------------------------------
-    # Final console summary
-    # -----------------------------------------------------------------------
+    edge_output = edges.copy()
 
-    print("\n")
+    edge_output["source_book_id"] = (
+        semantic_books.iloc[
+            edge_output["source"]
+        ]["canonical_book_id"]
+        .to_numpy()
+    )
+
+    edge_output["source_title"] = (
+        semantic_books.iloc[
+            edge_output["source"]
+        ]["title"]
+        .to_numpy()
+    )
+
+    edge_output["source_author"] = (
+        semantic_books.iloc[
+            edge_output["source"]
+        ]["author"]
+        .to_numpy()
+    )
+
+    edge_output["target_book_id"] = (
+        semantic_books.iloc[
+            edge_output["target"]
+        ]["canonical_book_id"]
+        .to_numpy()
+    )
+
+    edge_output["target_title"] = (
+        semantic_books.iloc[
+            edge_output["target"]
+        ]["title"]
+        .to_numpy()
+    )
+
+    edge_output["target_author"] = (
+        semantic_books.iloc[
+            edge_output["target"]
+        ]["author"]
+        .to_numpy()
+    )
+
+    edge_output.to_csv(
+        EDGES_PATH,
+        index=False,
+    )
+
+    # ------------------------------------------------------------------
+    # Final report.
+    # ------------------------------------------------------------------
+
+    print()
     print("=" * 72)
-    print("LEIDEN TUNING SUMMARY")
+    print("FINAL MODEL C ARTIFACTS CREATED")
     print("=" * 72)
 
-    display_columns = [
-        "resolution",
-        "communities",
-        "min_community_size",
-        "median_community_size",
-        "max_community_size",
-        "modularity",
-        "mean_internal_similarity",
-        "mean_ari",
-    ]
-
-    summary = (
-        tuning_df[
-            tuning_df["seed"] == 42
-        ][display_columns]
-        .sort_values("resolution")
+    print()
+    print(
+        f"Books:                 "
+        f"{len(assignments):,}"
     )
 
     print(
-        summary.to_string(
-            index=False,
-            float_format=lambda x: f"{x:.4f}",
-        )
+        f"Communities:           "
+        f"{community_count:,}"
     )
 
-    print("\nOutput files")
-    print("-" * 72)
-    print(TUNING_OUTPUT)
-    print(ASSIGNMENTS_OUTPUT)
-    print(COMMUNITY_SUMMARY_OUTPUT)
+    print(
+        f"Largest community:     "
+        f"{summary['book_count'].max():,}"
+    )
 
-    print("\nExperiment complete.")
+    print(
+        f"Median community size:  "
+        f"{summary['book_count'].median():.1f}"
+    )
+
+    print(
+        f"Smallest community:     "
+        f"{summary['book_count'].min():,}"
+    )
+
+    print(
+        f"Isolated books:         "
+        f"{int(diagnostics.iloc[0]['isolated_nodes']):,}"
+    )
+
+    print()
+    print("Top communities by size:")
+
+    display_columns = [
+        "community_id",
+        "book_count",
+        "internal_edge_count",
+        "mean_internal_similarity",
+        "median_internal_similarity",
+    ]
+
+    print(
+        summary[
+            display_columns
+        ]
+        .head(15)
+        .to_string(index=False)
+    )
+
+    print()
+    print("Outputs:")
+    print(f"  {ASSIGNMENTS_PATH}")
+    print(f"  {SUMMARY_PATH}")
+    print(f"  {DIAGNOSTICS_PATH}")
+    print(f"  {EDGES_PATH}")
+
+    print()
+    print("Model C semantic communities finalized.")
+    print(
+        "Next step: inspect representative communities "
+        "before freezing semantic community interpretation."
+    )
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        print()
+        print("ERROR:")
+        print(exc)
+        sys.exit(1)

@@ -1,0 +1,2 @@
+graph,k,min_similarity,nodes,edges,density,isolated_nodes,isolated_pct,components,largest_component,largest_component_pct,mean_similarity,median_similarity,max_similarity,mean_degree,median_degree,max_degree
+thresholded_knn,20,0.4000021517276764,3321,50273,0.00911922305300697,12,0.0036133694670280035,13,3309,0.996386630532972,0.5288471971885017,0.5231677293777466,1.0,30.275820535983136,25.0,278
