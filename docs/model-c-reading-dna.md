@@ -1,186 +1,591 @@
-# Model C — Multi-Interest + Multi-Label Reading DNA
+# Model C — Semantic Reading DNA
 
 ## Purpose
 
-Model C is the production candidate for the Reading Intelligence Dashboard's
-Reading DNA layer.
+Model C is the semantic representation layer for the Reading Intelligence Dashboard.
 
-It answers three different questions without collapsing them into one score:
+Its job is to answer:
 
-1. **Interest clusters:** What semantic neighborhoods exist in the reader's
-   book corpus?
-2. **Attributes/themes:** What concepts describe books, including concepts
-   that can overlap across multiple clusters?
-3. **Evidence:** What does the reader's history say about each attribute and
-   cluster in terms of preference, exposure, and reading intent?
+1. What semantic neighborhoods exist in the pooled book corpus?
+2. What concepts and attributes overlap across those neighborhoods?
+3. What does a particular reader's behavior say about each neighborhood?
 
-A book can therefore belong to several attributes at once.
+Model C is intentionally richer than a single genre label or a single reader score.
 
-Example:
+The final Reading DNA representation keeps three reader signals separate:
 
-> a book could carry `horror`, `feminist fiction`, and `speculative fiction`
-> simultaneously.
+- **Preference** — evidence that a reader likes a semantic neighborhood.
+- **Avoidance** — evidence that a reader actively dislikes a semantic neighborhood.
+- **Exploration** — evidence that a reader is actively exposed to a neighborhood without established preference.
 
-## Model C architecture
+A separate **evidence strength** measure describes how much actionable evidence supports the signal.
+
+There is deliberately no single combined "Reading DNA score."
+
+---
+
+## Architecture
 
 ```text
-                         BOOK CORPUS
-                              |
-                       sentence embeddings
-                              |
-                 +------------+-------------+
-                 |                          |
-                 v                          v
-          INTEREST CLUSTERS          MULTI-LABEL ATTRIBUTES
-                 |                          |
-       "what belongs together?"     "what can overlap?"
-                 |                          |
-                 +------------+-------------+
-                              |
-                         READER EVIDENCE
-                    /           |           \
-              preference     exposure      intent
-                    \           |           /
-                     +----------+----------+
-                              |
-                         READING DNA
+                         CANONICAL BOOK CORPUS
+                                  |
+                                  v
+                    Semantic representation
+               title + author + description +
+                    curated Open Library subjects
+                                  |
+                                  v
+                    sentence embeddings
+                    all-MiniLM-L6-v2 / 384d
+                                  |
+                                  v
+                  weighted semantic book graph
+                                  |
+                                  v
+                         Leiden communities
+                                  |
+                    +-------------+-------------+
+                    |                           |
+                    v                           v
+            Book neighborhoods          Book attributes
+            "what belongs together?"   "what can overlap?"
+                    |                           |
+                    +-------------+-------------+
+                                  |
+                                  v
+                       Reader book evidence
+                                  |
+                    +-------------+-------------+
+                    |             |             |
+                    v             v             v
+               preference     avoidance    exploration
+                    |             |             |
+                    +-------------+-------------+
+                                  |
+                                  v
+                            Reading DNA
 ```
 
-## Clustering design
+The semantic network is a pooled corpus representation. It is not fitted
+separately for each reader, so community IDs remain comparable across the
+three development readers.
 
-The model uses a pooled book corpus rather than fitting a separate cluster
-number for each reader. This makes cluster IDs comparable across readers.
+---
 
-KMeans is retained for V1 because:
+## Semantic representation
 
-- Model B already established a KMeans baseline.
-- It produces a complete assignment rather than a large outlier bucket.
-- It is simple to fit and reproduce.
-- Model C uses clusters as discovery/navigation structure, not as
-  authoritative genre labels.
+The frozen semantic text contains:
 
-The final K is selected by evaluating a range of values and applying explicit
-guardrails:
+- title
+- author
+- description
+- curated Open Library subjects
 
-1. stability across random seeds must be at least 0.70 ARI;
-2. the smallest cluster must contain at least 1% of the pooled corpus;
-3. among eligible solutions, choose the highest mean silhouette;
-4. ties go to the smaller K;
-5. if no candidate meets the guardrails, fall back to highest silhouette and
-   preserve that fact in the tuning output.
+Open Library subject metadata is normalized conservatively to remove obvious
+catalog noise while preserving legitimate themes and concepts.
 
-This is intentionally not a single hidden weighted objective.
+The embedding model is:
 
-## Multi-label attribute design
+```text
+all-MiniLM-L6-v2
+384 dimensions
+cosine-normalized
+```
 
-Attributes come from Open Library `subjects`, normalized for:
+The development corpus contains 3,321 canonical books and 100% of those books
+have semantic text.
 
-- case
-- punctuation
-- whitespace
-- obvious metadata terms
-- obvious location/catalog noise
+The semantic representation is source-independent at the canonical layer:
+Goodreads supplies reader/library evidence, while Open Library supplies book
+metadata used for semantic representation.
 
-The model does **not** force each book into one genre.
+---
 
-Attributes remain evidence-backed metadata. Model C does not invent a taxonomy
-or ask an LLM to assign labels during the core analytical pipeline.
+## Semantic community detection
+
+Flat KMeans was rejected as the final representation because it forces the
+corpus into a small number of global partitions and does not represent the
+fine-grained local structure observed in the semantic space.
+
+HDBSCAN was also rejected for the current corpus because it produced a giant
+central cluster and a large noise population.
+
+The final semantic neighborhood representation is a weighted Leiden community
+detection model over a thresholded k-nearest-neighbor graph.
+
+### Frozen graph configuration
+
+```text
+Graph:
+    weighted, symmetrized thresholded kNN graph
+
+K:
+    20 candidate neighbors per book
+
+Similarity threshold:
+    cosine similarity >= 0.40
+
+Edge weight:
+    cosine similarity
+
+Forced weak edges:
+    none
+
+Community algorithm:
+    Leiden
+
+Partition:
+    RBConfigurationVertexPartition
+
+Resolution:
+    3.0
+
+Membership:
+    books below the similarity threshold may remain isolated/unassigned
+```
+
+The graph was selected after comparing thresholded kNN configurations and
+inspecting community size, coherence, stability, and representative books.
+
+### Final development artifact
+
+```text
+Books:                 3,321
+Communities:              55
+Largest community:       257
+Median community size:    52
+Singleton communities:    12
+```
+
+Community IDs are implementation identifiers, not semantic labels. A future
+production run should not treat an ID such as `community_id = 0` as a
+permanent genre identity.
+
+The current development baseline has been manually inspected and includes
+coherent communities such as epic fantasy/romantasy, crime and psychological
+suspense, sports romance, children's series, mythology romance, and other
+fine-grained neighborhoods.
+
+---
 
 ## Reader evidence
 
-Each attribute is measured independently through:
+Reader evidence is attached at the `(reader_id, canonical_book_id)` level.
+
+The reader-book evidence layer resolves repeated source records before
+community-level aggregation.
+
+### Preference signals
+
+- `positive` = explicit positive preference, typically rating 3+ according
+  to the canonical evidence semantics
+- `negative` = explicit negative preference or DNF
+- `read_without_preference` = evidence that the reader read the book without
+  an explicit positive or negative preference
+- `exposure_only` = TBR/current exposure without established preference
+- `unknown` = insufficient evidence
+- `conflicted` = conflicting evidence retained rather than silently resolved
+
+The exact evidence semantics are defined in the canonical reader-evidence
+documentation and are not duplicated as an independent source of truth here.
+
+Unknown books do not contribute to preference, avoidance, or exploration.
+
+---
+
+# Reading DNA scoring contract
+
+Reading DNA is calculated at the reader × community level.
+
+## 1. Preference
+
+Preference measures evidence that a reader likes a semantic neighborhood.
+
+Let:
+
+```text
+P = positive_book_count
+N = negative_book_count
+E = P + N
+```
+
+Preference evidence strength:
+
+```text
+preference_evidence_strength =
+    1 - exp(-E / 5)
+```
+
+A smoothed positive preference rate is then calculated using a prior strength
+of 5 and prior preference of 0.25:
+
+```text
+smoothed_positive_rate =
+    (P + 5 * 0.25)
+    /
+    (E + 5)
+```
+
+The final preference signal is:
+
+```text
+preference_strength =
+    smoothed_positive_rate
+    * preference_evidence_strength
+```
+
+The smoothing prevents a one-book community from appearing equally certain as
+a community supported by dozens of books.
+
+---
+
+## 2. Avoidance
+
+Avoidance is deliberately stricter than simply observing negative books.
+
+A reader having many positive books and a few negative books in a community has
+negative evidence, but that does not establish avoidance.
+
+First calculate:
+
+```text
+positive_rate = P / (P + N)
+
+negative_rate = N / (P + N)
+```
+
+Then:
+
+```text
+avoidance_balance =
+    max(0, negative_rate - positive_rate)
+```
+
+Negative evidence strength is:
+
+```text
+negative_evidence_strength =
+    1 - exp(-N / 5)
+```
+
+The avoidance signal is:
+
+```text
+avoidance_strength =
+    avoidance_balance
+    * negative_evidence_strength
+```
+
+A community must have at least **2 negative books** before it can appear in the
+avoidance ranking.
+
+This intentionally makes avoidance a high-evidence claim.
+
+If no community qualifies, the correct output is:
+
+```text
+No qualifying communities.
+```
+
+The model does not manufacture avoidance merely to fill a dashboard slot.
+
+---
+
+## 3. Exploration
+
+Exploration is not raw TBR volume.
+
+It answers:
+
+> "How much of this community represents active exposure without established
+> preference?"
+
+Let:
+
+```text
+X = exposure_only_book_count
+A = preference_evidence_count + X
+```
+
+Then:
+
+```text
+exploration_rate =
+    X / A
+```
+
+Exploration evidence strength:
+
+```text
+exploration_evidence_strength =
+    1 - exp(-X / 5)
+```
+
+Final exploration signal:
+
+```text
+exploration_strength =
+    exploration_rate
+    * exploration_evidence_strength
+```
+
+This allows two different situations to be distinguished:
+
+```text
+Established interest + continued exploration
+```
+
+versus:
+
+```text
+Primarily exploratory exposure
+```
+
+For example, in the current development reader data, one community has
+43 positive preference books and 90 exposure-only books. Its exploration
+signal is therefore meaningful but below a community with 13 exposure-only
+books and no established preference evidence.
+
+---
+
+## 4. Evidence strength
+
+Evidence strength is deliberately separate from signal direction.
+
+```text
+actionable_evidence =
+    preference_evidence_count
+    + exposure_only_book_count
+```
+
+Then:
+
+```text
+evidence_strength =
+    1 - exp(-actionable_evidence / 5)
+```
+
+This answers:
+
+> "How much evidence do we have?"
+
+It does not answer:
+
+> "Does the reader like it?"
+
+---
+
+# Current Reading DNA experiment
+
+The scoring experiment was run against:
+
+```text
+Readers:       3
+Communities:  55
+Reader/community rows: 132
+```
+
+The three readers are the controlled development validation set:
+
+- You
+- Sarah
+- Shannon
+
+This is **not** generalization evidence. The three readers are useful for
+controlled model development, but broader validation with more diverse reader
+profiles is still required.
+
+## Results
 
 ### Preference
 
-- positive: rating >= 4
-- negative: rating <= 2 or did not finish
-- neutral: rating == 3 or no explicit preference evidence
+All three readers produced interpretable preference rankings supported by
+substantial evidence.
 
-### Exposure
-
-Observed reading:
-
-- read
-- did not finish
-- currently reading
-
-### Intent
-
-Current V1 intent:
-
-- to-read
-
-These streams remain separate. Model C does not apply arbitrary weights.
-
-## Outputs
+For the current user:
 
 ```text
-data/processed/reading_dna/
-├── book_reading_dna.csv
-├── cluster_descriptions.csv
-├── cluster_tuning.csv
-├── reader_attributes.csv
-├── reader_attribute_combinations.csv
-├── reader_clusters.csv
-├── model_c_summary.csv
-└── model_c_config.json
+Community 0:
+    preference = 0.9217
+    positive = 43
+    negative = 0
+    preference evidence = 43
+
+Community 11:
+    preference = 0.6252
+    positive = 10
+    negative = 1
+    preference evidence = 11
+
+Community 8:
+    preference = 0.5180
+    positive = 7
+    negative = 0
+    preference evidence = 7
 ```
 
-## Run
+These results are consistent with the intended behavior: large, explicitly
+positive evidence produces stronger and more stable preference signals.
 
-From the repository root:
+### Avoidance
+
+No community qualified for avoidance for any of the three readers.
+
+Validation:
+
+```text
+Avoidance validation: PASS
+Zero-negative communities with positive avoidance score: 0
+Zero-negative communities ranked for avoidance: 0
+```
+
+This is an acceptable result. The current sample does not provide strong
+enough community-level evidence to claim that any reader actively avoids a
+semantic neighborhood.
+
+### Exploration
+
+The exploration signal successfully identifies communities where exposure
+exists without established preference.
+
+For the current user:
+
+```text
+Community 28:
+    exploration = 0.9257
+    preference evidence = 0
+    exposure-only = 13
+
+Community 9:
+    exploration = 0.7761
+    preference evidence = 6
+    exposure-only = 22
+
+Community 0:
+    exploration = 0.6767
+    preference evidence = 43
+    exposure-only = 90
+```
+
+This demonstrates an important distinction for the eventual product:
+
+A reader can have an **established interest** in a neighborhood while also
+**continuing to explore** within it.
+
+---
+
+# Why the signals remain separate
+
+A single weighted Reading DNA score would hide important differences.
+
+For example:
+
+```text
+High preference + high exploration
+```
+
+means:
+
+> "I strongly like this area and am still exploring it."
+
+Whereas:
+
+```text
+Low preference evidence + high exploration
+```
+
+means:
+
+> "I'm actively exploring this area, but we don't yet know whether I like it."
+
+And:
+
+```text
+High avoidance
+```
+
+means something materially different again:
+
+> "There is enough negative evidence that this neighborhood may be a poor fit."
+
+These should remain distinct features of the reader profile.
+
+---
+
+# Current status
+
+### Frozen
+
+- canonical reader/book evidence
+- reader/book evidence aggregation
+- semantic representation
+- sentence embedding model
+- weighted thresholded kNN graph
+- Leiden community detection baseline
+- Reading DNA preference/avoidance/exploration scoring contract
+
+### Still experimental
+
+- production Reading DNA data contract
+- reader-level narrative/profile generation
+- multi-label attribute integration into the final profile
+- recommendation integration
+- validation across a broader and more diverse reader population
+
+### Not yet production
+
+The experiment outputs are analytical artifacts. The scoring module should not
+yet be treated as the final public-user pipeline.
+
+The next step is to build the **reader-level Reading DNA representation** from
+these validated community signals.
+
+---
+
+## Experiment artifacts
+
+```text
+data/processed/canonical/reading_dna/
+├── reader_community_evidence.csv
+├── reader_unassigned_evidence.csv
+├── reader_community_reading_dna_experiment.csv
+└── reader_community_reading_dna_rankings.csv
+```
+
+The experiment runner is:
 
 ```powershell
-python scripts/run_model_c_reading_dna.py --reader all
+python scripts/run_reader_community_scoring.py
 ```
 
-Run one reader while debugging:
+The output should be inspected before promotion into production analytics.
 
-```powershell
-python scripts/run_model_c_reading_dna.py --reader you
-```
+---
 
-Run tests:
-
-```powershell
-pytest -q
-```
-
-## What counts as a final model?
-
-Do not choose the final Model C configuration from silhouette alone.
-
-After the tuning run, inspect:
-
-- cluster stability
-- minimum cluster size
-- cluster sizes
-- top attributes by cluster
-- reader cluster coverage
-- attribute coverage
-- whether known multi-label examples behave sensibly
-- whether the resulting Reading DNA is interpretable
-
-The tuning CSV is therefore part of the model artifact, not disposable output.
-
-## Relationship to Model A and Model B
+## Model relationship
 
 ```text
 Model A
-single positive-preference centroid
-"What do I like overall?"
+    overall positive-preference representation
+    "What do I like overall?"
 
 Model B
-multiple positive-preference centroids
-"What distinct semantic neighborhoods exist inside what I like?"
+    multiple semantic preference neighborhoods
+    "What distinct areas of my taste exist?"
 
 Model C
-clusters + overlapping attributes + evidence streams
-"What are my interest neighborhoods, what concepts cross them,
-and what does my behavior say about each?"
+    semantic communities
+    + multi-label attributes
+    + reader evidence
+    + preference / avoidance / exploration
+    "How does this reader actually read?"
 ```
 
-Model C does not replace the Model B recommendation experiment. Model B remains
-the recommendation-oriented benchmark. Model C is the richer representation
-layer that can later feed recommendations, Reader Match, Book Match, AI
-explanations, and the Streamlit Reading DNA experience.
+Model C is the richer representation layer that can later support:
+
+- personalized recommendations
+- Reader Match
+- Book Match
+- evidence-based "Why this book?" explanations
+- shareable Reading DNA
+- the Streamlit Reading DNA experience
